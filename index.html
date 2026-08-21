@@ -1,46 +1,567 @@
 <!doctype html>
-<html lang="es"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>CyberFinance AR</title>
-<script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-<style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
-video,.a-canvas,canvas{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important}
-video{object-fit:cover!important}
-.a-enter-vr,.a-enter-ar,.a-orientation-modal,.a-enter-vr-button{display:none!important;visibility:hidden!important}
-#status{position:fixed;z-index:9999;top:3vh;left:50%;transform:translateX(-50%);padding:9px 15px;border-radius:20px;background:#0008;color:#fff;font:15px Arial;white-space:nowrap;pointer-events:none;transition:opacity .25s}
-</style></head><body>
-<div id="status">Iniciando cámara…</div>
-<a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: yes;"
- embedded vr-mode-ui="enabled:false" device-orientation-permission-ui="enabled:false"
- renderer="alpha:true;antialias:true;colorManagement:true">
-<a-assets><img id="fx" src="./effects-overlay.png"></a-assets>
-<a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
-<a-entity id="bull" mindar-image-target="targetIndex:0">
-  <!-- exact-aspect transparent overlay; target width is normalized to 1 -->
-  <a-plane id="overlay" src="#fx" transparent="true"
-    position="0 0 .012" width="1" height="1.28643216"
-    material="shader:flat;transparent:true;opacity:0;alphaTest:0.01"
-    animation__fade="property:material.opacity;from:.22;to:.95;dir:alternate;dur:520;loop:true;easing:easeInOutSine">
-  </a-plane>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
 
-  <!-- smoke is deliberately soft and small, anchored near original nostrils -->
-  <a-circle position="-.095 -.205 .025" radius=".013"
-    material="shader:flat;color:#00eaff;transparent:true;opacity:.35"
-    animation__p="property:position;from:-.095 -.205 .025;to:-.16 -.34 .06;dur:950;loop:true"
-    animation__s="property:scale;from:.25 .25 .25;to:2.8 2.8 2.8;dur:950;loop:true"
-    animation__o="property:material.opacity;from:.4;to:0;dur:950;loop:true"></a-circle>
-  <a-circle position=".055 -.205 .025" radius=".013"
-    material="shader:flat;color:#ff20df;transparent:true;opacity:.35"
-    animation__p="property:position;from:.055 -.205 .025;to:.12 -.34 .06;dur:1100;loop:true"
-    animation__s="property:scale;from:.25 .25 .25;to:2.8 2.8 2.8;dur:1100;loop:true"
-    animation__o="property:material.opacity;from:.4;to:0;dur:1100;loop:true"></a-circle>
-</a-entity></a-scene>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+  >
+
+  <title>CyberFinance AR Glitch</title>
+
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    video,
+    canvas,
+    .a-canvas {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      max-width: none !important;
+      max-height: none !important;
+    }
+
+    video {
+      object-fit: cover !important;
+    }
+
+    .a-enter-vr,
+    .a-enter-ar,
+    .a-enter-vr-button,
+    .a-orientation-modal {
+      display: none !important;
+      visibility: hidden !important;
+    }
+  </style>
+</head>
+
+<body>
+
+<a-scene
+  mindar-image="
+    imageTargetSrc: ./targets.mind;
+    autoStart: true;
+    uiLoading: no;
+    uiScanning: no;
+    uiError: yes;
+  "
+  embedded
+  vr-mode-ui="enabled: false"
+  device-orientation-permission-ui="enabled: false"
+  renderer="
+    alpha: true;
+    antialias: true;
+    colorManagement: true;
+  "
+>
+
+  <a-assets>
+    <img
+      id="targetImage"
+      src="./target.png"
+      crossorigin="anonymous"
+    >
+  </a-assets>
+
+  <a-camera
+    position="0 0 0"
+    look-controls="enabled: false">
+  </a-camera>
+
+
+  <a-entity
+    id="bullTarget"
+    mindar-image-target="targetIndex: 0"
+  >
+
+    <!--
+      Este plano solamente aparece mientras ocurre el glitch.
+
+      El target original mide 1592 x 2048.
+      MindAR normaliza el ancho a 1.
+
+      2048 / 1592 = 1.28643
+    -->
+
+    <a-plane
+      id="glitchPlane"
+      position="0 0 0.02"
+      width="1"
+      height="1.28643"
+      visible="false"
+      material="
+        shader: flat;
+        transparent: true;
+        side: double;
+      "
+    >
+    </a-plane>
+
+  </a-entity>
+
+</a-scene>
+
+
 <script>
-const s=document.querySelector('#status'), scene=document.querySelector('a-scene'), bull=document.querySelector('#bull');
-scene.addEventListener('arReady',()=>s.textContent='Buscando el toro…');
-scene.addEventListener('arError',()=>s.textContent='Error de cámara');
-bull.addEventListener('targetFound',()=>{s.textContent='✓ Toro detectado';setTimeout(()=>s.style.opacity='0',500);});
-bull.addEventListener('targetLost',()=>{s.style.opacity='1';s.textContent='Buscando el toro…';});
-</script></body></html>
+
+const TARGET_WIDTH  = 1592;
+const TARGET_HEIGHT = 2048;
+
+const GLITCH_DELAY = 2000;     // 2 segundos
+const GLITCH_TIME  = 900;      // duración del glitch
+
+
+const target = document.querySelector("#bullTarget");
+const plane  = document.querySelector("#glitchPlane");
+const image  = document.querySelector("#targetImage");
+
+
+/* =====================================================
+   CANVAS DE GLITCH
+===================================================== */
+
+const glitchCanvas = document.createElement("canvas");
+
+glitchCanvas.width  = TARGET_WIDTH;
+glitchCanvas.height = TARGET_HEIGHT;
+
+const ctx = glitchCanvas.getContext("2d");
+
+
+/* =====================================================
+   TEXTURA PARA A-FRAME / THREE.JS
+===================================================== */
+
+let texture = null;
+
+
+function createTexture() {
+
+  texture = new THREE.CanvasTexture(glitchCanvas);
+
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+
+  texture.needsUpdate = true;
+
+  plane.getObject3D("mesh").material.map = texture;
+  plane.getObject3D("mesh").material.transparent = true;
+  plane.getObject3D("mesh").material.needsUpdate = true;
+}
+
+
+/* =====================================================
+   DIBUJA UN FRAME GLITCHEADO
+===================================================== */
+
+function drawGlitchFrame(intensity = 1) {
+
+  ctx.clearRect(
+    0,
+    0,
+    TARGET_WIDTH,
+    TARGET_HEIGHT
+  );
+
+
+  /*
+   * En lugar de dibujar toda la imagen normalmente,
+   * la cortamos en franjas horizontales.
+   */
+
+  let y = 0;
+
+
+  while (y < TARGET_HEIGHT) {
+
+    /*
+     * Alto aleatorio de cada banda.
+     */
+
+    const sliceHeight =
+      8 +
+      Math.random() * 60;
+
+
+    /*
+     * Cuánto se desplaza horizontalmente.
+     */
+
+    let offset = 0;
+
+
+    if (Math.random() < 0.32 * intensity) {
+
+      offset =
+        (
+          Math.random() - 0.5
+        )
+        *
+        220
+        *
+        intensity;
+
+    }
+
+
+    ctx.drawImage(
+
+      image,
+
+      0,
+      y,
+      TARGET_WIDTH,
+      sliceHeight,
+
+      offset,
+      y,
+      TARGET_WIDTH,
+      sliceHeight
+
+    );
+
+
+    y += sliceHeight;
+  }
+
+
+  /* ===================================================
+     RGB SPLIT ocasional
+  =================================================== */
+
+  if (Math.random() < 0.7 * intensity) {
+
+    ctx.globalCompositeOperation = "screen";
+
+
+    ctx.globalAlpha =
+      0.15 +
+      intensity * 0.15;
+
+
+    /*
+     * desplazamiento cyan
+     */
+
+    ctx.drawImage(
+      image,
+      -10 * intensity,
+      0,
+      TARGET_WIDTH,
+      TARGET_HEIGHT
+    );
+
+
+    /*
+     * desplazamiento magenta
+     */
+
+    ctx.globalAlpha =
+      0.10 +
+      intensity * 0.12;
+
+
+    ctx.drawImage(
+      image,
+      10 * intensity,
+      0,
+      TARGET_WIDTH,
+      TARGET_HEIGHT
+    );
+
+
+    ctx.globalAlpha = 1;
+
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+
+  /* ===================================================
+     LÍNEAS DE ERROR
+  =================================================== */
+
+  const lines =
+    Math.floor(
+      2 +
+      intensity * 8
+    );
+
+
+  for (let i = 0; i < lines; i++) {
+
+    const lineY =
+      Math.random() *
+      TARGET_HEIGHT;
+
+
+    const lineHeight =
+      2 +
+      Math.random() * 10;
+
+
+    ctx.globalAlpha =
+      0.15 +
+      Math.random() * 0.3;
+
+
+    if (Math.random() > 0.5) {
+
+      ctx.fillStyle = "#00ffff";
+
+    } else {
+
+      ctx.fillStyle = "#ff00dd";
+
+    }
+
+
+    ctx.fillRect(
+      0,
+      lineY,
+      TARGET_WIDTH,
+      lineHeight
+    );
+  }
+
+
+  ctx.globalAlpha = 1;
+
+
+  if (texture) {
+
+    texture.needsUpdate = true;
+
+  }
+
+}
+
+
+/* =====================================================
+   ANIMACIÓN
+===================================================== */
+
+let glitchAnimation = null;
+
+let glitchTimeout = null;
+
+let targetVisible = false;
+
+
+function startGlitch() {
+
+  if (!targetVisible) {
+    return;
+  }
+
+
+  plane.setAttribute(
+    "visible",
+    true
+  );
+
+
+  const start =
+    performance.now();
+
+
+  function frame(now) {
+
+    if (!targetVisible) {
+
+      plane.setAttribute(
+        "visible",
+        false
+      );
+
+      return;
+    }
+
+
+    const elapsed =
+      now - start;
+
+
+    /*
+     * Curva de intensidad:
+     *
+     * 0 → 1 → 0
+     *
+     * empieza suave,
+     * llega al glitch máximo,
+     * vuelve a normal.
+     */
+
+    const progress =
+      elapsed /
+      GLITCH_TIME;
+
+
+    const intensity =
+      Math.sin(
+        progress *
+        Math.PI
+      );
+
+
+    drawGlitchFrame(
+      intensity
+    );
+
+
+    if (elapsed < GLITCH_TIME) {
+
+      glitchAnimation =
+        requestAnimationFrame(
+          frame
+        );
+
+    } else {
+
+      stopGlitch();
+
+    }
+
+  }
+
+
+  glitchAnimation =
+    requestAnimationFrame(
+      frame
+    );
+
+}
+
+
+function stopGlitch() {
+
+  if (glitchAnimation) {
+
+    cancelAnimationFrame(
+      glitchAnimation
+    );
+
+  }
+
+
+  glitchAnimation = null;
+
+
+  /*
+   * Sacamos completamente el plano.
+   *
+   * Por lo tanto vuelve a verse solamente
+   * la imagen física original.
+   */
+
+  plane.setAttribute(
+    "visible",
+    false
+  );
+
+}
+
+
+/* =====================================================
+   TARGET DETECTADO
+===================================================== */
+
+target.addEventListener(
+  "targetFound",
+  () => {
+
+    targetVisible = true;
+
+
+    stopGlitch();
+
+
+    clearTimeout(
+      glitchTimeout
+    );
+
+
+    /*
+     * Esperamos exactamente 2 segundos.
+     */
+
+    glitchTimeout =
+      setTimeout(
+        () => {
+
+          if (
+            targetVisible
+          ) {
+
+            startGlitch();
+
+          }
+
+        },
+        GLITCH_DELAY
+      );
+
+  }
+);
+
+
+/* =====================================================
+   TARGET PERDIDO
+===================================================== */
+
+target.addEventListener(
+  "targetLost",
+  () => {
+
+    targetVisible = false;
+
+
+    clearTimeout(
+      glitchTimeout
+    );
+
+
+    stopGlitch();
+
+  }
+);
+
+
+/* =====================================================
+   INICIALIZACIÓN
+===================================================== */
+
+plane.addEventListener(
+  "loaded",
+  () => {
+
+    if (image.complete) {
+
+      createTexture();
+
+    } else {
+
+      image.onload =
+        createTexture;
+
+    }
+
+  }
+);
+
+</script>
+
+</body>
+</html>

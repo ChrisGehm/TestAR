@@ -14,10 +14,10 @@ html,body{
   width:100%;
   height:100%;
   overflow:hidden;
-  background:transparent;
+  background:#000;
 }
 
-#cameraFeed{
+video{
   position:fixed!important;
   inset:0!important;
   width:100vw!important;
@@ -25,15 +25,6 @@ html,body{
   max-width:none!important;
   max-height:none!important;
   object-fit:cover!important;
-  z-index:0!important;
-  background:#000!important;
-}
-
-/* El video interno de MindAR no se usa para mostrar la cámara.
-   El tracking sigue usando su MediaStream normalmente. */
-body > video:not(#cameraFeed){
-  opacity:0!important;
-  pointer-events:none!important;
 }
 
 canvas,.a-canvas{
@@ -41,26 +32,53 @@ canvas,.a-canvas{
   inset:0!important;
   width:100vw!important;
   height:100vh!important;
-  z-index:1!important;
-  background:transparent!important;
 }
 
-.a-enter-vr,.a-enter-ar,.a-enter-vr-button,.a-orientation-modal{
+.a-enter-vr,
+.a-enter-ar,
+.a-enter-vr-button,
+.a-orientation-modal{
   display:none!important;
   visibility:hidden!important;
 }
-#qualityBadge{
-  position:fixed;z-index:99999;left:10px;bottom:10px;
-  padding:7px 10px;border-radius:8px;background:#000b;color:#8cff8c;
-  font:12px monospace;pointer-events:none;
+
+/* Overlay inicial para desbloquear audio en móviles */
+#soundGate{
+  position:fixed;
+  inset:0;
+  z-index:99999;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(0,0,0,.55);
+  backdrop-filter:blur(4px);
+}
+
+#soundGate button{
+  border:0;
+  border-radius:14px;
+  padding:16px 22px;
+  font:600 18px Arial,sans-serif;
+  cursor:pointer;
+}
+
+#soundGate.hidden{
+  display:none;
 }
 </style>
 </head>
 
 <body>
 
-<video id="cameraFeed" autoplay playsinline muted></video>
-<div id="qualityBadge">Cámara: iniciando…</div>
+<div id="soundGate">
+  <button id="startExperience">Iniciar experiencia</button>
+</div>
+
+<audio
+  id="glitchSound"
+  src="./glitch-interference.wav"
+  preload="auto">
+</audio>
 
 <a-scene
   id="scene"
@@ -106,99 +124,82 @@ canvas,.a-canvas{
 const TARGET_W = 1592;
 const TARGET_H = 2048;
 
-const WAIT_MS   = 500;
-const GLITCH_MS = 1100;
-const REPEAT_MS = 700;
+/* tiempos */
+const WAIT_MS   = 500;   // espera desde que detecta
+const GLITCH_MS = 1100;  // duración del glitch
+const REPEAT_MS = 700;   // pausa normal antes del siguiente glitch
 
-const target = document.querySelector("#bullTarget");
-const plane  = document.querySelector("#glitchPlane");
-const image  = document.querySelector("#targetImage");
-const scene  = document.querySelector("#scene");
-const cameraFeed = document.querySelector("#cameraFeed");
-const qualityBadge = document.querySelector("#qualityBadge");
+const target       = document.querySelector("#bullTarget");
+const plane        = document.querySelector("#glitchPlane");
+const image        = document.querySelector("#targetImage");
+const scene        = document.querySelector("#scene");
+const glitchSound  = document.querySelector("#glitchSound");
 
-let visible = false;
+const soundGate        = document.querySelector("#soundGate");
+const startExperience  = document.querySelector("#startExperience");
+
+let targetVisible = false;
 let waitTimer = null;
 let repeatTimer = null;
 let raf = null;
+let audioUnlocked = false;
 
-const canvas = document.createElement("canvas");
-canvas.width  = TARGET_W;
-canvas.height = TARGET_H;
 
-const ctx = canvas.getContext("2d", {alpha:true});
+/* =========================================================
+   DESBLOQUEO DE AUDIO EN ANDROID / IOS
+   ========================================================= */
+
+startExperience.addEventListener("click", async () => {
+  try {
+    glitchSound.volume = 0;
+    await glitchSound.play();
+    glitchSound.pause();
+    glitchSound.currentTime = 0;
+    glitchSound.volume = 1;
+    audioUnlocked = true;
+  } catch (e) {
+    console.warn("No pude desbloquear audio:", e);
+  }
+
+  soundGate.classList.add("hidden");
+});
+
+
+/* =========================================================
+   CANVAS DEL GLITCH
+   ========================================================= */
+
+const glitchCanvas = document.createElement("canvas");
+glitchCanvas.width  = TARGET_W;
+glitchCanvas.height = TARGET_H;
+
+const ctx = glitchCanvas.getContext("2d", { alpha:true });
+
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = "high";
+
 let texture = null;
 
 
 /* =========================================================
-   INTENTA SUBIR LA RESOLUCIÓN REAL DE LA CÁMARA
+   TEXTURA THREE
    ========================================================= */
 
-async function improveCameraQuality() {
-  try {
-    const internalVideo = [...document.querySelectorAll("video")]
-      .find(v => v !== cameraFeed && v.srcObject instanceof MediaStream);
+function createTexture() {
 
-    if (!internalVideo) {
-      setTimeout(improveCameraQuality, 200);
-      return;
-    }
-
-    if (cameraFeed.srcObject !== internalVideo.srcObject) {
-      cameraFeed.srcObject = internalVideo.srcObject;
-      try { await cameraFeed.play(); } catch (_) {}
-    }
-
-    const track = internalVideo.srcObject.getVideoTracks()[0];
-    if (!track) return;
-
-    const showQuality = () => {
-      const s = track.getSettings?.() || {};
-      qualityBadge.textContent =
-        `Cámara real: ${s.width || "?"}×${s.height || "?"} @ ${Math.round(s.frameRate || 0)}fps`;
-    };
-
-    showQuality();
-    setTimeout(showQuality, 500);
-    setTimeout(showQuality, 1500);
-
-  } catch (e) {
-    qualityBadge.textContent = "Cámara: error";
-    console.warn(e);
-  }
-}
-
-scene.addEventListener("renderstart", () => {
-  try {
-    if (scene.renderer) {
-      scene.renderer.setClearColor(0x000000, 0);
-      scene.renderer.setClearAlpha(0);
-    }
-    if (scene.object3D) scene.object3D.background = null;
-  } catch (_) {}
-});
-
-scene.addEventListener("arReady", () => {
-  setTimeout(improveCameraQuality, 250);
-});
-
-
-/* =========================================================
-   TEXTURA CANVAS -> THREE
-   ========================================================= */
-
-function initTexture() {
   const mesh = plane.getObject3D("mesh");
 
   if (!mesh) {
-    requestAnimationFrame(initTexture);
+    requestAnimationFrame(createTexture);
     return;
   }
 
-  texture = new THREE.CanvasTexture(canvas);
+  texture = new THREE.CanvasTexture(glitchCanvas);
+
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
+  texture.needsUpdate = true;
 
   mesh.material.map = texture;
   mesh.material.transparent = true;
@@ -207,25 +208,19 @@ function initTexture() {
 
 
 /* =========================================================
-   GLITCH FUERTE
+   DIBUJA GLITCH FUERTE
    ========================================================= */
 
 function renderGlitch(progress) {
 
-  // 0 -> 1 -> 0
   const envelope = Math.sin(progress * Math.PI);
-
-  // se vuelve mucho más agresivo en el centro
   const power = Math.pow(envelope, 0.55);
 
-  ctx.clearRect(0,0,TARGET_W,TARGET_H);
+  ctx.clearRect(0, 0, TARGET_W, TARGET_H);
 
-  /*
-    Base ligeramente desplazada.
-    Así nunca parece una imagen simplemente estática.
-  */
-  const baseX = (Math.random() - .5) * 28 * power;
-  const baseY = (Math.random() - .5) * 16 * power;
+  /* pequeña sacudida de imagen completa */
+  const baseX = (Math.random() - 0.5) * 28 * power;
+  const baseY = (Math.random() - 0.5) * 16 * power;
 
   ctx.drawImage(
     image,
@@ -236,19 +231,16 @@ function renderGlitch(progress) {
   );
 
 
-  /* -----------------------------
-     CORTES HORIZONTALES GRANDES
-     ----------------------------- */
-
+  /* cortes horizontales */
   const slices = Math.floor(8 + 42 * power);
 
-  for (let i=0; i<slices; i++) {
+  for (let i = 0; i < slices; i++) {
 
     const y = Math.random() * TARGET_H;
     const h = 4 + Math.random() * (25 + 100 * power);
 
     const maxShift = 60 + 320 * power;
-    const shift = (Math.random() - .5) * maxShift;
+    const shift = (Math.random() - 0.5) * maxShift;
 
     ctx.drawImage(
       image,
@@ -260,13 +252,10 @@ function renderGlitch(progress) {
   }
 
 
-  /* -----------------------------
-     BLOQUES DE DISTORSIÓN
-     ----------------------------- */
-
+  /* bloques desplazados */
   const blocks = Math.floor(3 + 16 * power);
 
-  for (let i=0; i<blocks; i++) {
+  for (let i = 0; i < blocks; i++) {
 
     const sx = Math.random() * TARGET_W;
     const sy = Math.random() * TARGET_H;
@@ -274,8 +263,8 @@ function renderGlitch(progress) {
     const sw = 80 + Math.random() * 500;
     const sh = 20 + Math.random() * 180;
 
-    const dx = sx + (Math.random() - .5) * 260 * power;
-    const dy = sy + (Math.random() - .5) * 80 * power;
+    const dx = sx + (Math.random() - 0.5) * 260 * power;
+    const dy = sy + (Math.random() - 0.5) * 80 * power;
 
     ctx.drawImage(
       image,
@@ -285,178 +274,350 @@ function renderGlitch(progress) {
   }
 
 
-  /* -----------------------------
-     RGB SPLIT MÁS MARCADO
-     ----------------------------- */
-
-  if (power > .12) {
+  /* RGB split */
+  if (power > 0.12) {
 
     ctx.save();
+
     ctx.globalCompositeOperation = "screen";
 
     const rgbShift = 10 + 45 * power;
 
-    ctx.globalAlpha = .16 + .18 * power;
+    ctx.globalAlpha = 0.16 + 0.18 * power;
     ctx.filter = "hue-rotate(155deg) saturate(2.8)";
-    ctx.drawImage(image, -rgbShift, 0, TARGET_W, TARGET_H);
 
-    ctx.globalAlpha = .13 + .16 * power;
+    ctx.drawImage(
+      image,
+      -rgbShift,
+      0,
+      TARGET_W,
+      TARGET_H
+    );
+
+    ctx.globalAlpha = 0.13 + 0.16 * power;
     ctx.filter = "hue-rotate(300deg) saturate(3)";
-    ctx.drawImage(image, rgbShift, 0, TARGET_W, TARGET_H);
+
+    ctx.drawImage(
+      image,
+      rgbShift,
+      0,
+      TARGET_W,
+      TARGET_H
+    );
 
     ctx.restore();
   }
 
 
-  /* -----------------------------
-     FLASH / RUIDO
-     ----------------------------- */
-
-  if (Math.random() < .38 * power) {
-    ctx.fillStyle = `rgba(255,255,255,${0.05 + 0.12*power})`;
-    ctx.fillRect(0,0,TARGET_W,TARGET_H);
-  }
-
-  const errorLines = Math.floor(2 + 18 * power);
-
-  for (let i=0; i<errorLines; i++) {
-    const y = Math.random() * TARGET_H;
-    const hh = 2 + Math.random() * 15;
+  /* flashes */
+  if (Math.random() < 0.38 * power) {
 
     ctx.fillStyle =
-      Math.random() > .5
-        ? `rgba(0,255,255,${.2 + .45*power})`
-        : `rgba(255,0,220,${.2 + .45*power})`;
+      `rgba(255,255,255,${0.05 + 0.12 * power})`;
 
     ctx.fillRect(
-      Math.random() * TARGET_W * .15,
-      y,
-      TARGET_W * (.55 + Math.random()*.45),
-      hh
+      0,
+      0,
+      TARGET_W,
+      TARGET_H
     );
   }
 
 
-  /* -----------------------------
-     SACUDIDA DEL PLANO ENTERO
-     ----------------------------- */
+  /* líneas cyan / magenta */
+  const lines = Math.floor(2 + 18 * power);
 
-  const shakeX = (Math.random() - .5) * .035 * power;
-  const shakeY = (Math.random() - .5) * .025 * power;
+  for (let i = 0; i < lines; i++) {
+
+    const y = Math.random() * TARGET_H;
+    const h = 2 + Math.random() * 15;
+
+    ctx.fillStyle =
+      Math.random() > 0.5
+        ? `rgba(0,255,255,${0.2 + 0.45 * power})`
+        : `rgba(255,0,220,${0.2 + 0.45 * power})`;
+
+    ctx.fillRect(
+      Math.random() * TARGET_W * 0.15,
+      y,
+      TARGET_W * (0.55 + Math.random() * 0.45),
+      h
+    );
+  }
+
+
+  /* shake del plano completo */
+  const shakeX =
+    (Math.random() - 0.5) * 0.035 * power;
+
+  const shakeY =
+    (Math.random() - 0.5) * 0.025 * power;
 
   plane.setAttribute(
     "position",
     `${shakeX} ${shakeY} 0.03`
   );
 
-  const sx = 1 + (Math.random()-.5) * .055 * power;
-  const sy = 1 + (Math.random()-.5) * .035 * power;
+
+  const sx =
+    1 + (Math.random() - 0.5) * 0.055 * power;
+
+  const sy =
+    1 + (Math.random() - 0.5) * 0.035 * power;
 
   plane.setAttribute(
     "scale",
     `${sx} ${sy} 1`
   );
 
-  texture.needsUpdate = true;
+
+  if (texture) {
+    texture.needsUpdate = true;
+  }
 }
 
 
 /* =========================================================
-   SECUENCIA
+   AUDIO
+   ========================================================= */
+
+function playGlitchSound() {
+
+  if (!audioUnlocked) return;
+
+  try {
+    glitchSound.pause();
+    glitchSound.currentTime = 0;
+    glitchSound.volume = 1;
+
+    const promise = glitchSound.play();
+
+    if (promise) {
+      promise.catch(err => {
+        console.warn("Audio bloqueado:", err);
+      });
+    }
+
+  } catch (e) {
+    console.warn(e);
+  }
+}
+
+
+function stopGlitchSound() {
+
+  try {
+    glitchSound.pause();
+    glitchSound.currentTime = 0;
+  } catch (_) {}
+}
+
+
+/* =========================================================
+   INICIA GLITCH
    ========================================================= */
 
 function startGlitch() {
 
-  if (!visible) return;
+  if (!targetVisible) return;
 
-  plane.setAttribute("visible", true);
+  plane.setAttribute(
+    "visible",
+    true
+  );
+
+  /* audio y glitch empiezan juntos */
+  playGlitchSound();
 
   const start = performance.now();
 
+
   function animate(now) {
 
-    if (!visible) {
+    if (!targetVisible) {
       stopGlitch();
       return;
     }
 
-    const elapsed = now - start;
-    const progress = Math.min(elapsed / GLITCH_MS, 1);
+    const elapsed =
+      now - start;
 
-    renderGlitch(progress);
+    const progress =
+      Math.min(
+        elapsed / GLITCH_MS,
+        1
+      );
+
+
+    renderGlitch(
+      progress
+    );
+
 
     if (progress < 1) {
-      raf = requestAnimationFrame(animate);
+
+      raf =
+        requestAnimationFrame(
+          animate
+        );
+
     } else {
+
       stopGlitch();
 
-      clearTimeout(repeatTimer);
-      repeatTimer = setTimeout(() => {
-        if (visible) startGlitch();
-      }, REPEAT_MS);
+      clearTimeout(
+        repeatTimer
+      );
+
+
+      repeatTimer =
+        setTimeout(
+          () => {
+
+            if (targetVisible) {
+              startGlitch();
+            }
+
+          },
+          REPEAT_MS
+        );
+
     }
+
   }
 
-  raf = requestAnimationFrame(animate);
-}
 
-
-function stopGlitch() {
-
-  if (raf) {
-    cancelAnimationFrame(raf);
-    raf = null;
-  }
-
-  plane.setAttribute("visible", false);
-  plane.setAttribute("position", "0 0 0.03");
-  plane.setAttribute("scale", "1 1 1");
+  raf =
+    requestAnimationFrame(
+      animate
+    );
 }
 
 
 /* =========================================================
-   TRACKING
+   DETIENE GLITCH
    ========================================================= */
 
-target.addEventListener("targetFound", () => {
+function stopGlitch() {
 
-  if (visible) return;
-  visible = true;
+  if (raf) {
 
-  clearTimeout(waitTimer);
-  clearTimeout(repeatTimer);
-  stopGlitch();
+    cancelAnimationFrame(
+      raf
+    );
 
-  waitTimer = setTimeout(() => {
-    if (visible) startGlitch();
-  }, WAIT_MS);
-});
+    raf = null;
+  }
 
 
-target.addEventListener("targetLost", () => {
+  plane.setAttribute(
+    "visible",
+    false
+  );
 
-  visible = false;
 
-  clearTimeout(waitTimer);
-  clearTimeout(repeatTimer);
-  stopGlitch();
-});
+  plane.setAttribute(
+    "position",
+    "0 0 0.03"
+  );
+
+
+  plane.setAttribute(
+    "scale",
+    "1 1 1"
+  );
+
+
+  stopGlitchSound();
+}
+
+
+/* =========================================================
+   TARGET DETECTADO
+   ========================================================= */
+
+target.addEventListener(
+  "targetFound",
+  () => {
+
+    if (targetVisible) return;
+
+    targetVisible = true;
+
+
+    clearTimeout(
+      waitTimer
+    );
+
+    clearTimeout(
+      repeatTimer
+    );
+
+
+    stopGlitch();
+
+
+    waitTimer =
+      setTimeout(
+        () => {
+
+          if (targetVisible) {
+            startGlitch();
+          }
+
+        },
+        WAIT_MS
+      );
+
+  }
+);
+
+
+/* =========================================================
+   TARGET PERDIDO
+   ========================================================= */
+
+target.addEventListener(
+  "targetLost",
+  () => {
+
+    targetVisible = false;
+
+
+    clearTimeout(
+      waitTimer
+    );
+
+    clearTimeout(
+      repeatTimer
+    );
+
+
+    stopGlitch();
+
+  }
+);
 
 
 /* =========================================================
    INIT
    ========================================================= */
 
-plane.addEventListener("loaded", () => {
+plane.addEventListener(
+  "loaded",
+  () => {
 
-  if (image.complete) {
-    initTexture();
-  } else {
-    image.onload = initTexture;
+    if (image.complete) {
+      createTexture();
+    } else {
+      image.onload =
+        createTexture;
+    }
+
   }
-
-});
+);
 
 </script>
+
 </body>
 </html>

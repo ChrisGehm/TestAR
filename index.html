@@ -17,7 +17,7 @@ html,body{
   background:transparent;
 }
 
-video{
+#cameraFeed{
   position:fixed!important;
   inset:0!important;
   width:100vw!important;
@@ -26,7 +26,14 @@ video{
   max-height:none!important;
   object-fit:cover!important;
   z-index:0!important;
-  background:transparent!important;
+  background:#000!important;
+}
+
+/* El video interno de MindAR no se usa para mostrar la cámara.
+   El tracking sigue usando su MediaStream normalmente. */
+body > video:not(#cameraFeed){
+  opacity:0!important;
+  pointer-events:none!important;
 }
 
 canvas,.a-canvas{
@@ -46,6 +53,8 @@ canvas,.a-canvas{
 </head>
 
 <body>
+
+<video id="cameraFeed" autoplay playsinline muted></video>
 
 <a-scene
   id="scene"
@@ -99,6 +108,7 @@ const target = document.querySelector("#bullTarget");
 const plane  = document.querySelector("#glitchPlane");
 const image  = document.querySelector("#targetImage");
 const scene  = document.querySelector("#scene");
+const cameraFeed = document.querySelector("#cameraFeed");
 
 let visible = false;
 let waitTimer = null;
@@ -110,6 +120,8 @@ canvas.width  = TARGET_W;
 canvas.height = TARGET_H;
 
 const ctx = canvas.getContext("2d", {alpha:true});
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = "high";
 let texture = null;
 
 
@@ -119,63 +131,129 @@ let texture = null;
 
 async function improveCameraQuality() {
   try {
-    const video = [...document.querySelectorAll("video")]
-      .find(v => v.srcObject instanceof MediaStream);
+    const internalVideo = [...document.querySelectorAll("video")]
+      .find(v => v !== cameraFeed && v.srcObject instanceof MediaStream);
 
-    if (!video) {
-      setTimeout(improveCameraQuality, 400);
+    if (!internalVideo) {
+      setTimeout(improveCameraQuality, 200);
       return;
     }
 
-    const track = video.srcObject.getVideoTracks()[0];
+    /* Usamos el MISMO stream de MindAR para no romper el tracking. */
+    if (cameraFeed.srcObject !== internalVideo.srcObject) {
+      cameraFeed.srcObject = internalVideo.srcObject;
+      try { await cameraFeed.play(); } catch (_) {}
+    }
+
+    const stream = internalVideo.srcObject;
+    const track = stream.getVideoTracks()[0];
     if (!track) return;
 
     const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const current = track.getSettings ? track.getSettings() : {};
+
+    /*
+      Pedimos hasta 4K si Chrome/cámara lo ofrecen.
+      Son "ideal", no "exact", para que el navegador baje
+      automáticamente si el dispositivo no puede entregar tanto.
+    */
+    const maxW = caps.width?.max || 3840;
+    const maxH = caps.height?.max || 2160;
 
     const constraints = {
-      width:  { ideal: 1920 },
-      height: { ideal: 1080 },
-      frameRate: { ideal: 30, max: 30 }
+      width:  { ideal: Math.min(3840, maxW) },
+      height: { ideal: Math.min(2160, maxH) },
+      frameRate: { ideal: 30 }
     };
+
+    if (caps.aspectRatio) {
+      constraints.aspectRatio = { ideal: 16 / 9 };
+    }
 
     if (caps.focusMode?.includes("continuous")) {
       constraints.focusMode = "continuous";
     }
 
-    await track.applyConstraints(constraints);
+    if (caps.resizeMode?.includes("none")) {
+      constraints.resizeMode = "none";
+    }
 
-    const settings = track.getSettings();
-    console.log("Camera:", settings.width, "x", settings.height, settings.frameRate);
+    try {
+      await track.applyConstraints(constraints);
+    } catch (e) {
+      console.warn("No se pudo aplicar perfil 4K/HD:", e);
+    }
+
+    /*
+      Algunos Android negocian una resolución baja al comienzo
+      y permiten subirla unos instantes después. Reintentamos.
+    */
+    await new Promise(r => setTimeout(r, 700));
+
+    try {
+      await track.applyConstraints(constraints);
+    } catch (_) {}
+
+    const settings = track.getSettings ? track.getSettings() : {};
+
+    /*
+      El elemento visible toma las dimensiones nativas reales
+      del stream, evitando escalados internos innecesarios.
+    */
+    if (internalVideo.videoWidth && internalVideo.videoHeight) {
+      cameraFeed.width = internalVideo.videoWidth;
+      cameraFeed.height = internalVideo.videoHeight;
+    }
+
+    console.log(
+      "Camera quality:",
+      settings.width,
+      "x",
+      settings.height,
+      "@",
+      settings.frameRate,
+      "fps",
+      "focus:",
+      settings.focusMode || "n/a"
+    );
+
   } catch (e) {
-    console.warn("No se pudieron aplicar constraints HD:", e);
+    console.warn("No pude optimizar la cámara:", e);
   }
 }
 
-
-/* =========================================================
-   ASEGURA QUE EL CANVAS WEBGL SEA TRANSPARENTE
-   Y DEJE VER LA CÁMARA REAL DEBAJO
-   ========================================================= */
-
 scene.addEventListener("renderstart", () => {
   try {
-    const renderer = scene.renderer;
-    if (renderer) {
-      renderer.setClearColor(0x000000, 0);
-      renderer.setClearAlpha(0);
-      renderer.autoClear = true;
+    if (scene.renderer) {
+      scene.renderer.setClearColor(0x000000, 0);
+      scene.renderer.setClearAlpha(0);
+
+      /*
+        Sube la resolución física del canvas AR.
+        En pantallas de alta densidad evita que el glitch
+        se vea "lavado" o pixelado.
+      */
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      scene.renderer.setPixelRatio(dpr);
+      scene.renderer.setSize(window.innerWidth, window.innerHeight, false);
     }
 
-    if (scene.object3D) {
-      scene.object3D.background = null;
-    }
-  } catch (e) {
-    console.warn("No pude forzar transparencia del renderer:", e);
-  }
+    if (scene.object3D) scene.object3D.background = null;
+  } catch (_) {}
 });
 
 scene.addEventListener("arReady", () => {
   setTimeout(improveCameraQuality, 250);
+});
+
+window.addEventListener("resize", () => {
+  try {
+    if (scene.renderer) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      scene.renderer.setPixelRatio(dpr);
+      scene.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    }
+  } catch (_) {}
 });
 
 
@@ -416,6 +494,7 @@ function stopGlitch() {
 
 target.addEventListener("targetFound", () => {
 
+  if (visible) return;
   visible = true;
 
   clearTimeout(waitTimer);

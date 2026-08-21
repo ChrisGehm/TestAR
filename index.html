@@ -1,567 +1,421 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>CyberFinance AR Glitch</title>
 
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-  >
+<script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
-  <title>CyberFinance AR Glitch</title>
+<style>
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:#000;
+}
 
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+video{
+  position:fixed!important;
+  inset:0!important;
+  width:100vw!important;
+  height:100vh!important;
+  max-width:none!important;
+  max-height:none!important;
+  object-fit:cover!important;
+}
 
-  <style>
-    html,
-    body {
-      margin: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: transparent;
-    }
+canvas,.a-canvas{
+  position:fixed!important;
+  inset:0!important;
+  width:100vw!important;
+  height:100vh!important;
+}
 
-    video,
-    canvas,
-    .a-canvas {
-      position: fixed !important;
-      inset: 0 !important;
-      width: 100vw !important;
-      height: 100vh !important;
-      max-width: none !important;
-      max-height: none !important;
-    }
-
-    video {
-      object-fit: cover !important;
-    }
-
-    .a-enter-vr,
-    .a-enter-ar,
-    .a-enter-vr-button,
-    .a-orientation-modal {
-      display: none !important;
-      visibility: hidden !important;
-    }
-  </style>
+.a-enter-vr,.a-enter-ar,.a-enter-vr-button,.a-orientation-modal{
+  display:none!important;
+  visibility:hidden!important;
+}
+</style>
 </head>
 
 <body>
 
 <a-scene
+  id="scene"
   mindar-image="
     imageTargetSrc: ./targets.mind;
     autoStart: true;
     uiLoading: no;
     uiScanning: no;
     uiError: yes;
+    filterMinCF: 0.0001;
+    filterBeta: 0.01;
+    warmupTolerance: 5;
+    missTolerance: 5;
   "
   embedded
-  vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: false"
-  renderer="
-    alpha: true;
-    antialias: true;
-    colorManagement: true;
-  "
+  vr-mode-ui="enabled:false"
+  device-orientation-permission-ui="enabled:false"
+  renderer="alpha:true;antialias:true;colorManagement:true;precision:high"
 >
 
-  <a-assets>
-    <img
-      id="targetImage"
-      src="./target.png"
-      crossorigin="anonymous"
-    >
-  </a-assets>
+<a-assets>
+  <img id="targetImage" src="./target.png" crossorigin="anonymous">
+</a-assets>
 
-  <a-camera
-    position="0 0 0"
-    look-controls="enabled: false">
-  </a-camera>
+<a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
+<a-entity id="bullTarget" mindar-image-target="targetIndex:0">
 
-  <a-entity
-    id="bullTarget"
-    mindar-image-target="targetIndex: 0"
-  >
+  <a-plane
+    id="glitchPlane"
+    position="0 0 0.03"
+    width="1"
+    height="1.28643216"
+    visible="false"
+    material="shader:flat;transparent:true;side:double;depthTest:false"
+  ></a-plane>
 
-    <!--
-      Este plano solamente aparece mientras ocurre el glitch.
-
-      El target original mide 1592 x 2048.
-      MindAR normaliza el ancho a 1.
-
-      2048 / 1592 = 1.28643
-    -->
-
-    <a-plane
-      id="glitchPlane"
-      position="0 0 0.02"
-      width="1"
-      height="1.28643"
-      visible="false"
-      material="
-        shader: flat;
-        transparent: true;
-        side: double;
-      "
-    >
-    </a-plane>
-
-  </a-entity>
+</a-entity>
 
 </a-scene>
 
-
 <script>
+const TARGET_W = 1592;
+const TARGET_H = 2048;
 
-const TARGET_WIDTH  = 1592;
-const TARGET_HEIGHT = 2048;
-
-const GLITCH_DELAY = 2000;     // 2 segundos
-const GLITCH_TIME  = 900;      // duración del glitch
-
+const WAIT_MS   = 2000;
+const GLITCH_MS = 1450;
 
 const target = document.querySelector("#bullTarget");
 const plane  = document.querySelector("#glitchPlane");
 const image  = document.querySelector("#targetImage");
+const scene  = document.querySelector("#scene");
 
+let visible = false;
+let waitTimer = null;
+let raf = null;
 
-/* =====================================================
-   CANVAS DE GLITCH
-===================================================== */
+const canvas = document.createElement("canvas");
+canvas.width  = TARGET_W;
+canvas.height = TARGET_H;
 
-const glitchCanvas = document.createElement("canvas");
-
-glitchCanvas.width  = TARGET_WIDTH;
-glitchCanvas.height = TARGET_HEIGHT;
-
-const ctx = glitchCanvas.getContext("2d");
-
-
-/* =====================================================
-   TEXTURA PARA A-FRAME / THREE.JS
-===================================================== */
-
+const ctx = canvas.getContext("2d", {alpha:true});
 let texture = null;
 
 
-function createTexture() {
-
-  texture = new THREE.CanvasTexture(glitchCanvas);
-
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-
-  texture.needsUpdate = true;
-
-  plane.getObject3D("mesh").material.map = texture;
-  plane.getObject3D("mesh").material.transparent = true;
-  plane.getObject3D("mesh").material.needsUpdate = true;
-}
-
-
-/* =====================================================
-   DIBUJA UN FRAME GLITCHEADO
-===================================================== */
-
-function drawGlitchFrame(intensity = 1) {
-
-  ctx.clearRect(
-    0,
-    0,
-    TARGET_WIDTH,
-    TARGET_HEIGHT
-  );
-
-
-  /*
-   * En lugar de dibujar toda la imagen normalmente,
-   * la cortamos en franjas horizontales.
-   */
-
-  let y = 0;
-
-
-  while (y < TARGET_HEIGHT) {
-
-    /*
-     * Alto aleatorio de cada banda.
-     */
-
-    const sliceHeight =
-      8 +
-      Math.random() * 60;
-
-
-    /*
-     * Cuánto se desplaza horizontalmente.
-     */
-
-    let offset = 0;
-
-
-    if (Math.random() < 0.32 * intensity) {
-
-      offset =
-        (
-          Math.random() - 0.5
-        )
-        *
-        220
-        *
-        intensity;
-
-    }
-
-
-    ctx.drawImage(
-
-      image,
-
-      0,
-      y,
-      TARGET_WIDTH,
-      sliceHeight,
-
-      offset,
-      y,
-      TARGET_WIDTH,
-      sliceHeight
-
-    );
-
-
-    y += sliceHeight;
-  }
-
-
-  /* ===================================================
-     RGB SPLIT ocasional
-  =================================================== */
-
-  if (Math.random() < 0.7 * intensity) {
-
-    ctx.globalCompositeOperation = "screen";
-
-
-    ctx.globalAlpha =
-      0.15 +
-      intensity * 0.15;
-
-
-    /*
-     * desplazamiento cyan
-     */
-
-    ctx.drawImage(
-      image,
-      -10 * intensity,
-      0,
-      TARGET_WIDTH,
-      TARGET_HEIGHT
-    );
-
-
-    /*
-     * desplazamiento magenta
-     */
-
-    ctx.globalAlpha =
-      0.10 +
-      intensity * 0.12;
-
-
-    ctx.drawImage(
-      image,
-      10 * intensity,
-      0,
-      TARGET_WIDTH,
-      TARGET_HEIGHT
-    );
-
-
-    ctx.globalAlpha = 1;
-
-    ctx.globalCompositeOperation = "source-over";
-  }
-
-
-  /* ===================================================
-     LÍNEAS DE ERROR
-  =================================================== */
-
-  const lines =
-    Math.floor(
-      2 +
-      intensity * 8
-    );
-
-
-  for (let i = 0; i < lines; i++) {
-
-    const lineY =
-      Math.random() *
-      TARGET_HEIGHT;
-
-
-    const lineHeight =
-      2 +
-      Math.random() * 10;
-
-
-    ctx.globalAlpha =
-      0.15 +
-      Math.random() * 0.3;
-
-
-    if (Math.random() > 0.5) {
-
-      ctx.fillStyle = "#00ffff";
-
-    } else {
-
-      ctx.fillStyle = "#ff00dd";
-
-    }
-
-
-    ctx.fillRect(
-      0,
-      lineY,
-      TARGET_WIDTH,
-      lineHeight
-    );
-  }
-
-
-  ctx.globalAlpha = 1;
-
-
-  if (texture) {
-
-    texture.needsUpdate = true;
-
-  }
-
-}
-
-
-/* =====================================================
-   ANIMACIÓN
-===================================================== */
-
-let glitchAnimation = null;
-
-let glitchTimeout = null;
-
-let targetVisible = false;
-
-
-function startGlitch() {
-
-  if (!targetVisible) {
-    return;
-  }
-
-
-  plane.setAttribute(
-    "visible",
-    true
-  );
-
-
-  const start =
-    performance.now();
-
-
-  function frame(now) {
-
-    if (!targetVisible) {
-
-      plane.setAttribute(
-        "visible",
-        false
-      );
-
+/* =========================================================
+   INTENTA SUBIR LA RESOLUCIÓN REAL DE LA CÁMARA
+   ========================================================= */
+
+async function improveCameraQuality() {
+  try {
+    const video = [...document.querySelectorAll("video")]
+      .find(v => v.srcObject instanceof MediaStream);
+
+    if (!video) {
+      setTimeout(improveCameraQuality, 400);
       return;
     }
 
+    const track = video.srcObject.getVideoTracks()[0];
+    if (!track) return;
 
-    const elapsed =
-      now - start;
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
 
+    const constraints = {
+      width:  { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 30, max: 30 }
+    };
 
-    /*
-     * Curva de intensidad:
-     *
-     * 0 → 1 → 0
-     *
-     * empieza suave,
-     * llega al glitch máximo,
-     * vuelve a normal.
-     */
-
-    const progress =
-      elapsed /
-      GLITCH_TIME;
-
-
-    const intensity =
-      Math.sin(
-        progress *
-        Math.PI
-      );
-
-
-    drawGlitchFrame(
-      intensity
-    );
-
-
-    if (elapsed < GLITCH_TIME) {
-
-      glitchAnimation =
-        requestAnimationFrame(
-          frame
-        );
-
-    } else {
-
-      stopGlitch();
-
+    if (caps.focusMode?.includes("continuous")) {
+      constraints.focusMode = "continuous";
     }
 
+    await track.applyConstraints(constraints);
+
+    const settings = track.getSettings();
+    console.log("Camera:", settings.width, "x", settings.height, settings.frameRate);
+  } catch (e) {
+    console.warn("No se pudieron aplicar constraints HD:", e);
+  }
+}
+
+scene.addEventListener("arReady", () => {
+  setTimeout(improveCameraQuality, 250);
+});
+
+
+/* =========================================================
+   TEXTURA CANVAS -> THREE
+   ========================================================= */
+
+function initTexture() {
+  const mesh = plane.getObject3D("mesh");
+
+  if (!mesh) {
+    requestAnimationFrame(initTexture);
+    return;
+  }
+
+  texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+
+  mesh.material.map = texture;
+  mesh.material.transparent = true;
+  mesh.material.needsUpdate = true;
+}
+
+
+/* =========================================================
+   GLITCH FUERTE
+   ========================================================= */
+
+function renderGlitch(progress) {
+
+  // 0 -> 1 -> 0
+  const envelope = Math.sin(progress * Math.PI);
+
+  // se vuelve mucho más agresivo en el centro
+  const power = Math.pow(envelope, 0.55);
+
+  ctx.clearRect(0,0,TARGET_W,TARGET_H);
+
+  /*
+    Base ligeramente desplazada.
+    Así nunca parece una imagen simplemente estática.
+  */
+  const baseX = (Math.random() - .5) * 28 * power;
+  const baseY = (Math.random() - .5) * 16 * power;
+
+  ctx.drawImage(
+    image,
+    baseX,
+    baseY,
+    TARGET_W,
+    TARGET_H
+  );
+
+
+  /* -----------------------------
+     CORTES HORIZONTALES GRANDES
+     ----------------------------- */
+
+  const slices = Math.floor(8 + 42 * power);
+
+  for (let i=0; i<slices; i++) {
+
+    const y = Math.random() * TARGET_H;
+    const h = 4 + Math.random() * (25 + 100 * power);
+
+    const maxShift = 60 + 320 * power;
+    const shift = (Math.random() - .5) * maxShift;
+
+    ctx.drawImage(
+      image,
+      0, y,
+      TARGET_W, h,
+      shift, y,
+      TARGET_W, h
+    );
   }
 
 
-  glitchAnimation =
-    requestAnimationFrame(
-      frame
-    );
+  /* -----------------------------
+     BLOQUES DE DISTORSIÓN
+     ----------------------------- */
 
+  const blocks = Math.floor(3 + 16 * power);
+
+  for (let i=0; i<blocks; i++) {
+
+    const sx = Math.random() * TARGET_W;
+    const sy = Math.random() * TARGET_H;
+
+    const sw = 80 + Math.random() * 500;
+    const sh = 20 + Math.random() * 180;
+
+    const dx = sx + (Math.random() - .5) * 260 * power;
+    const dy = sy + (Math.random() - .5) * 80 * power;
+
+    ctx.drawImage(
+      image,
+      sx, sy, sw, sh,
+      dx, dy, sw, sh
+    );
+  }
+
+
+  /* -----------------------------
+     RGB SPLIT MÁS MARCADO
+     ----------------------------- */
+
+  if (power > .12) {
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+
+    const rgbShift = 10 + 45 * power;
+
+    ctx.globalAlpha = .16 + .18 * power;
+    ctx.filter = "hue-rotate(155deg) saturate(2.8)";
+    ctx.drawImage(image, -rgbShift, 0, TARGET_W, TARGET_H);
+
+    ctx.globalAlpha = .13 + .16 * power;
+    ctx.filter = "hue-rotate(300deg) saturate(3)";
+    ctx.drawImage(image, rgbShift, 0, TARGET_W, TARGET_H);
+
+    ctx.restore();
+  }
+
+
+  /* -----------------------------
+     FLASH / RUIDO
+     ----------------------------- */
+
+  if (Math.random() < .38 * power) {
+    ctx.fillStyle = `rgba(255,255,255,${0.05 + 0.12*power})`;
+    ctx.fillRect(0,0,TARGET_W,TARGET_H);
+  }
+
+  const errorLines = Math.floor(2 + 18 * power);
+
+  for (let i=0; i<errorLines; i++) {
+    const y = Math.random() * TARGET_H;
+    const hh = 2 + Math.random() * 15;
+
+    ctx.fillStyle =
+      Math.random() > .5
+        ? `rgba(0,255,255,${.2 + .45*power})`
+        : `rgba(255,0,220,${.2 + .45*power})`;
+
+    ctx.fillRect(
+      Math.random() * TARGET_W * .15,
+      y,
+      TARGET_W * (.55 + Math.random()*.45),
+      hh
+    );
+  }
+
+
+  /* -----------------------------
+     SACUDIDA DEL PLANO ENTERO
+     ----------------------------- */
+
+  const shakeX = (Math.random() - .5) * .035 * power;
+  const shakeY = (Math.random() - .5) * .025 * power;
+
+  plane.setAttribute(
+    "position",
+    `${shakeX} ${shakeY} 0.03`
+  );
+
+  const sx = 1 + (Math.random()-.5) * .055 * power;
+  const sy = 1 + (Math.random()-.5) * .035 * power;
+
+  plane.setAttribute(
+    "scale",
+    `${sx} ${sy} 1`
+  );
+
+  texture.needsUpdate = true;
+}
+
+
+/* =========================================================
+   SECUENCIA
+   ========================================================= */
+
+function startGlitch() {
+
+  if (!visible) return;
+
+  plane.setAttribute("visible", true);
+
+  const start = performance.now();
+
+  function animate(now) {
+
+    if (!visible) {
+      stopGlitch();
+      return;
+    }
+
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / GLITCH_MS, 1);
+
+    renderGlitch(progress);
+
+    if (progress < 1) {
+      raf = requestAnimationFrame(animate);
+    } else {
+      stopGlitch();
+    }
+  }
+
+  raf = requestAnimationFrame(animate);
 }
 
 
 function stopGlitch() {
 
-  if (glitchAnimation) {
-
-    cancelAnimationFrame(
-      glitchAnimation
-    );
-
+  if (raf) {
+    cancelAnimationFrame(raf);
+    raf = null;
   }
 
-
-  glitchAnimation = null;
-
-
-  /*
-   * Sacamos completamente el plano.
-   *
-   * Por lo tanto vuelve a verse solamente
-   * la imagen física original.
-   */
-
-  plane.setAttribute(
-    "visible",
-    false
-  );
-
+  plane.setAttribute("visible", false);
+  plane.setAttribute("position", "0 0 0.03");
+  plane.setAttribute("scale", "1 1 1");
 }
 
 
-/* =====================================================
-   TARGET DETECTADO
-===================================================== */
+/* =========================================================
+   TRACKING
+   ========================================================= */
 
-target.addEventListener(
-  "targetFound",
-  () => {
+target.addEventListener("targetFound", () => {
 
-    targetVisible = true;
+  visible = true;
 
+  clearTimeout(waitTimer);
+  stopGlitch();
 
-    stopGlitch();
-
-
-    clearTimeout(
-      glitchTimeout
-    );
+  waitTimer = setTimeout(() => {
+    if (visible) startGlitch();
+  }, WAIT_MS);
+});
 
 
-    /*
-     * Esperamos exactamente 2 segundos.
-     */
+target.addEventListener("targetLost", () => {
 
-    glitchTimeout =
-      setTimeout(
-        () => {
+  visible = false;
 
-          if (
-            targetVisible
-          ) {
+  clearTimeout(waitTimer);
+  stopGlitch();
+});
 
-            startGlitch();
 
-          }
+/* =========================================================
+   INIT
+   ========================================================= */
 
-        },
-        GLITCH_DELAY
-      );
+plane.addEventListener("loaded", () => {
 
+  if (image.complete) {
+    initTexture();
+  } else {
+    image.onload = initTexture;
   }
-);
 
-
-/* =====================================================
-   TARGET PERDIDO
-===================================================== */
-
-target.addEventListener(
-  "targetLost",
-  () => {
-
-    targetVisible = false;
-
-
-    clearTimeout(
-      glitchTimeout
-    );
-
-
-    stopGlitch();
-
-  }
-);
-
-
-/* =====================================================
-   INICIALIZACIÓN
-===================================================== */
-
-plane.addEventListener(
-  "loaded",
-  () => {
-
-    if (image.complete) {
-
-      createTexture();
-
-    } else {
-
-      image.onload =
-        createTexture;
-
-    }
-
-  }
-);
+});
 
 </script>
-
 </body>
 </html>

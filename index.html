@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>CyberFinance AR Bull</title>
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    #hud { position:fixed; inset:0; z-index:20; pointer-events:none; display:flex; align-items:flex-start; justify-content:center; }
+    #status { margin-top:max(18px, env(safe-area-inset-top)); padding:9px 13px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff; font-size:14px; backdrop-filter:blur(6px); }
+    #hint { position:fixed; left:50%; bottom:max(22px, env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:20; width:min(88vw,520px); padding:10px 14px; border-radius:14px; background:rgba(0,0,0,.6); color:#fff; text-align:center; font-size:13px; pointer-events:none; }
+    #startOverlay { position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#050505,#13001a); color:#fff; }
+    #card { width:min(88vw,430px); padding:24px; border:1px solid rgba(255,255,255,.18); border-radius:22px; background:rgba(255,255,255,.07); box-shadow:0 20px 70px rgba(0,0,0,.5); }
+    #card h1 { margin:0 0 8px; font-size:24px; }
+    #card p { margin:0 0 18px; line-height:1.45; color:#ddd; }
+    #startBtn { width:100%; border:0; border-radius:14px; padding:14px 16px; font-weight:700; font-size:16px; cursor:pointer; background:#fff; color:#111; }
+  </style>
+</head>
+<body>
+  <div id="startOverlay">
+    <div id="card">
+      <h1>CyberFinance AR</h1>
+      <p>Permití el acceso a la cámara y apuntá al toro impreso. Cuando lo reconozca, los ojos van a pulsar.</p>
+      <button id="startBtn">Iniciar experiencia</button>
+    </div>
+  </div>
+  <div id="hud"><div id="status">Esperando cámara…</div></div>
+  <div id="hint">Buscá que el toro ocupe buena parte de la pantalla y evitá reflejos fuertes.</div>
+
+  <a-scene
+    id="scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; filterMinCF: 0.0001; filterBeta: 0.001;"
+    color-space="sRGB"
+    renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true; alpha: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    embedded>
+
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <a-entity id="target" mindar-image-target="targetIndex: 0">
+      <!-- Ojo izquierdo: centro aprox. (560,850) sobre 1592x2048 -->
+      <a-circle class="eyeGlow" position="-0.148 0.219 0.01" radius="0.072"
+        material="shader: flat; color: #ff00d4; transparent: true; opacity: 0.18; blending: additive"
+        animation__pulse="property: material.opacity; from: 0.12; to: 0.78; dur: 620; dir: alternate; loop: true; easing: easeInOutSine"
+        animation__scale="property: scale; from: 0.90 0.90 0.90; to: 1.18 1.18 1.18; dur: 620; dir: alternate; loop: true; easing: easeInOutSine">
+      </a-circle>
+      <a-ring position="-0.148 0.219 0.012" radius-inner="0.045" radius-outer="0.058"
+        material="shader: flat; color: #ffffff; transparent: true; opacity: 0.45; blending: additive"
+        animation="property: material.opacity; from: 0.25; to: 0.95; dur: 620; dir: alternate; loop: true; easing: easeInOutSine">
+      </a-ring>
+
+      <!-- Ojo derecho: centro aprox. (955,850) -->
+      <a-circle class="eyeGlow" position="0.100 0.219 0.01" radius="0.072"
+        material="shader: flat; color: #ff00d4; transparent: true; opacity: 0.18; blending: additive"
+        animation__pulse="property: material.opacity; from: 0.12; to: 0.78; dur: 620; dir: alternate; loop: true; easing: easeInOutSine"
+        animation__scale="property: scale; from: 0.90 0.90 0.90; to: 1.18 1.18 1.18; dur: 620; dir: alternate; loop: true; easing: easeInOutSine">
+      </a-circle>
+      <a-ring position="0.100 0.219 0.012" radius-inner="0.045" radius-outer="0.058"
+        material="shader: flat; color: #ffffff; transparent: true; opacity: 0.45; blending: additive"
+        animation="property: material.opacity; from: 0.25; to: 0.95; dur: 620; dir: alternate; loop: true; easing: easeInOutSine">
+      </a-ring>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    const scene = document.querySelector('#scene');
+    const target = document.querySelector('#target');
+    const overlay = document.querySelector('#startOverlay');
+    const startBtn = document.querySelector('#startBtn');
+    const status = document.querySelector('#status');
+    const hint = document.querySelector('#hint');
+
+    async function startAR() {
+      startBtn.disabled = true;
+      startBtn.textContent = 'Iniciando…';
+      try {
+        const arSystem = scene.systems['mindar-image-system'];
+        await arSystem.start();
+        overlay.style.display = 'none';
+        status.textContent = 'Buscando el toro…';
+      } catch (err) {
+        console.error(err);
+        startBtn.disabled = false;
+        startBtn.textContent = 'Reintentar';
+        status.textContent = 'No se pudo abrir la cámara';
+        alert('No se pudo iniciar la cámara. Abrí esta página por HTTPS y permití acceso a la cámara.');
+      }
+    }
+
+    startBtn.addEventListener('click', startAR);
+    target.addEventListener('targetFound', () => {
+      status.textContent = '✓ Toro detectado';
+      hint.textContent = 'Mové el celular: los ojos deberían quedar pegados a la impresión.';
+    });
+    target.addEventListener('targetLost', () => {
+      status.textContent = 'Buscando el toro…';
+      hint.textContent = 'Volvé a apuntar a la imagen completa.';
+    });
+  </script>
+</body>
+</html>

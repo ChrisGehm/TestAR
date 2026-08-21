@@ -14,7 +14,7 @@ html,body{
   width:100%;
   height:100%;
   overflow:hidden;
-  background:#000;
+  background:transparent;
 }
 
 video{
@@ -25,6 +25,8 @@ video{
   max-width:none!important;
   max-height:none!important;
   object-fit:cover!important;
+  z-index:0!important;
+  background:transparent!important;
 }
 
 canvas,.a-canvas{
@@ -32,6 +34,8 @@ canvas,.a-canvas{
   inset:0!important;
   width:100vw!important;
   height:100vh!important;
+  z-index:1!important;
+  background:transparent!important;
 }
 
 .a-enter-vr,.a-enter-ar,.a-enter-vr-button,.a-orientation-modal{
@@ -146,6 +150,29 @@ async function improveCameraQuality() {
     console.warn("No se pudieron aplicar constraints HD:", e);
   }
 }
+
+
+/* =========================================================
+   ASEGURA QUE EL CANVAS WEBGL SEA TRANSPARENTE
+   Y DEJE VER LA CÁMARA REAL DEBAJO
+   ========================================================= */
+
+scene.addEventListener("renderstart", () => {
+  try {
+    const renderer = scene.renderer;
+    if (renderer) {
+      renderer.setClearColor(0x000000, 0);
+      renderer.setClearAlpha(0);
+      renderer.autoClear = true;
+    }
+
+    if (scene.object3D) {
+      scene.object3D.background = null;
+    }
+  } catch (e) {
+    console.warn("No pude forzar transparencia del renderer:", e);
+  }
+});
 
 scene.addEventListener("arReady", () => {
   setTimeout(improveCameraQuality, 250);

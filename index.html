@@ -77,7 +77,7 @@ canvas,.a-canvas{
   id="scene"
   mindar-image="
     imageTargetSrc: ./targets.mind;
-    autoStart: true;
+    autoStart: false;
     uiLoading: no;
     uiScanning: no;
     uiError: yes;
@@ -151,7 +151,8 @@ async function improveCameraQuality() {
       .find(v => v !== cameraFeed && v.srcObject instanceof MediaStream);
 
     if (!internalVideo) {
-      diag.textContent = "Buscando stream interno de MindAR…";
+      diag.textContent =
+        "MindAR inició, esperando el stream de cámara…";
       setTimeout(improveCameraQuality, 200);
       return;
     }
@@ -161,73 +162,39 @@ async function improveCameraQuality() {
       try { await cameraFeed.play(); } catch (_) {}
     }
 
-    const stream = internalVideo.srcObject;
-    const track = stream.getVideoTracks()[0];
-
-    if (!track) {
-      diag.textContent = "No encontré video track.";
-      return;
-    }
+    const track = internalVideo.srcObject.getVideoTracks()[0];
+    if (!track) return;
 
     const caps = track.getCapabilities ? track.getCapabilities() : {};
-    const before = track.getSettings ? track.getSettings() : {};
+    const settings = track.getSettings ? track.getSettings() : {};
 
-    const requested = {
-      width: 1920,
-      height: 1080,
-      frameRate: 30
+    const refresh = () => {
+      const s = track.getSettings ? track.getSettings() : {};
+
+      diag.textContent = [
+        "=== CAMERA DEBUG 1080P ===",
+        "MindAR solicitado: 1920x1080",
+        `Track real: ${s.width || "?"}x${s.height || "?"} @ ${s.frameRate || "?"}fps`,
+        `Video MindAR: ${internalVideo.videoWidth || "?"}x${internalVideo.videoHeight || "?"}`,
+        `Video visible: ${cameraFeed.videoWidth || "?"}x${cameraFeed.videoHeight || "?"}`,
+        `Facing: ${s.facingMode || "?"}`,
+        `Focus: ${s.focusMode || "?"}`,
+        `DevicePixelRatio: ${window.devicePixelRatio || "?"}`,
+        "",
+        "Capacidades:",
+        `width: ${caps.width ? `${caps.width.min}-${caps.width.max}` : "n/a"}`,
+        `height: ${caps.height ? `${caps.height.min}-${caps.height.max}` : "n/a"}`,
+        `fps: ${caps.frameRate ? `${caps.frameRate.min}-${caps.frameRate.max}` : "n/a"}`
+      ].join("\\n");
     };
 
-    const constraints = {
-      width: { ideal: requested.width },
-      height: { ideal: requested.height },
-      frameRate: { ideal: requested.frameRate, max: requested.frameRate }
-    };
-
-    if (caps.focusMode?.includes("continuous")) {
-      constraints.focusMode = "continuous";
-    }
-
-    try {
-      await track.applyConstraints(constraints);
-    } catch (e) {
-      console.warn("1080p constraints:", e);
-    }
-
-    await new Promise(r => setTimeout(r, 500));
-
-    const after = track.getSettings ? track.getSettings() : {};
-
-    const lines = [
-      "=== CAMERA DEBUG ===",
-      `Solicitado: ${requested.width}x${requested.height} @ ${requested.frameRate}fps`,
-      `Track antes: ${before.width || "?"}x${before.height || "?"} @ ${before.frameRate || "?"}fps`,
-      `Track actual: ${after.width || "?"}x${after.height || "?"} @ ${after.frameRate || "?"}fps`,
-      `Video MindAR: ${internalVideo.videoWidth || "?"}x${internalVideo.videoHeight || "?"}`,
-      `Video visible: ${cameraFeed.videoWidth || "?"}x${cameraFeed.videoHeight || "?"}`,
-      `Facing: ${after.facingMode || "?"}`,
-      `Focus: ${after.focusMode || "?"}`,
-      `DevicePixelRatio: ${window.devicePixelRatio || "?"}`,
-      "",
-      "Capacidades:",
-      `width: ${caps.width ? `${caps.width.min}-${caps.width.max}` : "n/a"}`,
-      `height: ${caps.height ? `${caps.height.min}-${caps.height.max}` : "n/a"}`,
-      `fps: ${caps.frameRate ? `${caps.frameRate.min}-${caps.frameRate.max}` : "n/a"}`
-    ];
-
-    diag.textContent = lines.join("\n");
-
-    console.table({
-      requested,
-      before,
-      after,
-      mindarVideo: `${internalVideo.videoWidth}x${internalVideo.videoHeight}`,
-      visibleVideo: `${cameraFeed.videoWidth}x${cameraFeed.videoHeight}`
-    });
+    refresh();
+    setTimeout(refresh, 800);
 
   } catch (e) {
-    diag.textContent = "Error diagnóstico:\n" + (e?.message || e);
-    console.warn("Camera diagnostics error:", e);
+    diag.textContent =
+      "Error diagnóstico:\\n" + (e?.message || e);
+    console.error(e);
   }
 }
 
@@ -241,7 +208,37 @@ scene.addEventListener("renderstart", () => {
   } catch (_) {}
 });
 
+scene.addEventListener("loaded", async () => {
+  try {
+    const mindarSystem = scene.systems["mindar-image-system"];
+
+    /*
+      IMPORTANTE:
+      MindAR usa estos valores cuando crea getUserMedia().
+      Antes estábamos intentando cambiar el track DESPUÉS,
+      cuando ya había nacido en 480x640.
+    */
+    mindarSystem.videoWidth = 1920;
+    mindarSystem.videoHeight = 1080;
+
+    diag.textContent =
+      "Abriendo cámara desde MindAR en 1920x1080…";
+
+    await mindarSystem.start();
+
+  } catch (e) {
+    diag.textContent =
+      "Error iniciando MindAR 1080p:\\n" + (e?.message || e);
+    console.error(e);
+  }
+});
+
 scene.addEventListener("arReady", () => {
+  /*
+    Ya NO dependemos de applyConstraints para subir resolución.
+    Solo enlazamos el stream visible y mostramos qué resolución
+    obtuvo realmente MindAR.
+  */
   setTimeout(improveCameraQuality, 250);
 });
 

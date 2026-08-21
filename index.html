@@ -49,36 +49,12 @@ canvas,.a-canvas{
   display:none!important;
   visibility:hidden!important;
 }
-
-#soundGate{
-  position:fixed;
-  inset:0;
-  z-index:99999;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:rgba(0,0,0,.45);
-  backdrop-filter:blur(3px);
-}
-#soundGate.hidden{display:none}
-#soundGate button{
-  border:0;
-  border-radius:14px;
-  padding:16px 22px;
-  font:600 18px Arial,sans-serif;
-  cursor:pointer;
-}
 </style>
 </head>
 
 <body>
 
 <video id="cameraFeed" autoplay playsinline muted></video>
-
-<div id="soundGate">
-  <button id="startExperience">Iniciar experiencia</button>
-</div>
-
 <audio id="glitchSound" src="./glitch-interference.wav" preload="auto"></audio>
 
 <a-scene
@@ -135,8 +111,6 @@ const image  = document.querySelector("#targetImage");
 const scene  = document.querySelector("#scene");
 const cameraFeed = document.querySelector("#cameraFeed");
 const glitchSound = document.querySelector("#glitchSound");
-const soundGate = document.querySelector("#soundGate");
-const startExperience = document.querySelector("#startExperience");
 let audioUnlocked = false;
 
 let visible = false;
@@ -157,7 +131,15 @@ let texture = null;
    ========================================================= */
 
 
-startExperience.addEventListener("click", async () => {
+/* =========================================================
+   AUDIO: SIN PANTALLA INICIAL
+   El primer toque/click en cualquier parte de la página intenta
+   desbloquear el audio. No se muestra ningún overlay.
+   ========================================================= */
+
+async function unlockAudioOnce() {
+  if (audioUnlocked) return;
+
   try {
     glitchSound.volume = 0;
     await glitchSound.play();
@@ -165,21 +147,26 @@ startExperience.addEventListener("click", async () => {
     glitchSound.currentTime = 0;
     glitchSound.volume = 1;
     audioUnlocked = true;
-  } catch (e) {
-    console.warn("No pude desbloquear audio:", e);
+  } catch (_) {
+    /* Chrome puede seguir bloqueándolo hasta otra interacción. */
   }
+}
 
-  soundGate.classList.add("hidden");
+["pointerdown", "touchstart", "click"].forEach(evt => {
+  document.addEventListener(evt, unlockAudioOnce, {
+    once: true,
+    passive: true
+  });
 });
 
 function playGlitchSound() {
-  if (!audioUnlocked) return;
-
   try {
     glitchSound.pause();
     glitchSound.currentTime = 0;
     glitchSound.volume = 1;
-    glitchSound.play().catch(() => {});
+    glitchSound.play()
+      .then(() => { audioUnlocked = true; })
+      .catch(() => {});
   } catch (_) {}
 }
 

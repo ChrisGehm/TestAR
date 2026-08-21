@@ -5,458 +5,206 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>CyberFinance AR Glitch</title>
 
-<script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+  }
+}
+</script>
 
 <style>
-html,body{
-  margin:0;
-  width:100%;
-  height:100%;
-  overflow:hidden;
-  background:transparent;
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+#ar{position:fixed;inset:0;width:100vw;height:100vh;overflow:hidden}
+#status{
+  position:fixed;left:10px;bottom:10px;z-index:10000;
+  padding:8px 10px;border-radius:8px;background:#000b;color:#8cff8c;
+  font:12px monospace;pointer-events:none
 }
-
-#cameraFeed{
-  position:fixed!important;
-  inset:0!important;
-  width:100vw!important;
-  height:100vh!important;
-  max-width:none!important;
-  max-height:none!important;
-  object-fit:cover!important;
-  z-index:0!important;
-  background:#000!important;
-}
-
-/* El video interno de MindAR no se usa para mostrar la cámara.
-   El tracking sigue usando su MediaStream normalmente. */
-body > video:not(#cameraFeed){
-  opacity:0!important;
-  pointer-events:none!important;
-}
-
-canvas,.a-canvas{
-  position:fixed!important;
-  inset:0!important;
-  width:100vw!important;
-  height:100vh!important;
-  z-index:1!important;
-  background:transparent!important;
-}
-
-.a-enter-vr,.a-enter-ar,.a-enter-vr-button,.a-orientation-modal{
-  display:none!important;
-  visibility:hidden!important;
-}
-#qualityBadge{
-  position:fixed;z-index:99999;left:10px;bottom:10px;
-  padding:7px 10px;border-radius:8px;background:#000b;color:#8cff8c;
-  font:12px monospace;pointer-events:none;
-}
+canvas{background:transparent!important}
 </style>
 </head>
 
 <body>
+<div id="ar"></div>
+<div id="status">Iniciando cámara…</div>
 
-<video id="cameraFeed" autoplay playsinline muted></video>
-<div id="qualityBadge">Cámara: iniciando…</div>
+<script type="module">
+import * as THREE from "three";
+import { MindARThree } from "mindar-image-three";
 
-<a-scene
-  id="scene"
-  mindar-image="
-    imageTargetSrc: ./targets.mind;
-    autoStart: true;
-    uiLoading: no;
-    uiScanning: no;
-    uiError: yes;
-    filterMinCF: 0.0001;
-    filterBeta: 0.01;
-    warmupTolerance: 5;
-    missTolerance: 5;
-  "
-  embedded
-  vr-mode-ui="enabled:false"
-  device-orientation-permission-ui="enabled:false"
-  renderer="alpha:true;antialias:true;colorManagement:true;precision:high"
->
+const container = document.querySelector("#ar");
+const status = document.querySelector("#status");
 
-<a-assets>
-  <img id="targetImage" src="./target.png" crossorigin="anonymous">
-</a-assets>
+const mindarThree = new MindARThree({
+  container,
+  imageTargetSrc: "./targets.mind",
+  maxTrack: 1,
+  filterMinCF: 0.0001,
+  filterBeta: 0.001
+});
 
-<a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
+const {renderer, scene, camera} = mindarThree;
+renderer.setClearColor(0x000000, 0);
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
 
-<a-entity id="bullTarget" mindar-image-target="targetIndex:0">
+const anchor = mindarThree.addAnchor(0);
 
-  <a-plane
-    id="glitchPlane"
-    position="0 0 0.03"
-    width="1"
-    height="1.28643216"
-    visible="false"
-    material="shader:flat;transparent:true;side:double;depthTest:false"
-  ></a-plane>
+/*
+  Overlay de glitch. Usamos target.png como textura y shaders UV
+  para que la distorsión ocurra enteramente en GPU.
+*/
+const texture = new THREE.TextureLoader().load("./target.png");
+texture.colorSpace = THREE.SRGBColorSpace;
 
-</a-entity>
+const uniforms = {
+  map: {value:texture},
+  time: {value:0},
+  amount: {value:0}
+};
 
-</a-scene>
-
-<script>
-const TARGET_W = 1592;
-const TARGET_H = 2048;
-
-const WAIT_MS   = 500;
-const GLITCH_MS = 1100;
-const REPEAT_MS = 700;
-
-const target = document.querySelector("#bullTarget");
-const plane  = document.querySelector("#glitchPlane");
-const image  = document.querySelector("#targetImage");
-const scene  = document.querySelector("#scene");
-const cameraFeed = document.querySelector("#cameraFeed");
-const qualityBadge = document.querySelector("#qualityBadge");
-
-let visible = false;
-let waitTimer = null;
-let repeatTimer = null;
-let raf = null;
-
-const canvas = document.createElement("canvas");
-canvas.width  = TARGET_W;
-canvas.height = TARGET_H;
-
-const ctx = canvas.getContext("2d", {alpha:true});
-let texture = null;
-
-
-/* =========================================================
-   INTENTA SUBIR LA RESOLUCIÓN REAL DE LA CÁMARA
-   ========================================================= */
-
-async function improveCameraQuality() {
-  try {
-    const internalVideo = [...document.querySelectorAll("video")]
-      .find(v => v !== cameraFeed && v.srcObject instanceof MediaStream);
-
-    if (!internalVideo) {
-      setTimeout(improveCameraQuality, 200);
-      return;
+const material = new THREE.ShaderMaterial({
+  transparent:true,
+  depthTest:false,
+  depthWrite:false,
+  uniforms,
+  vertexShader: `
+    varying vec2 vUv;
+    void main(){
+      vUv=uv;
+      gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
     }
+  `,
+  fragmentShader: `
+    uniform sampler2D map;
+    uniform float time;
+    uniform float amount;
+    varying vec2 vUv;
 
-    if (cameraFeed.srcObject !== internalVideo.srcObject) {
-      cameraFeed.srcObject = internalVideo.srcObject;
-      try { await cameraFeed.play(); } catch (_) {}
+    float hash(float n){return fract(sin(n)*43758.5453123);}
+
+    void main(){
+      vec2 uv=vUv;
+      float row=floor(uv.y*32.0);
+      float gate=step(0.55,hash(row+floor(time*24.0)));
+      float shift=(hash(row*3.7+floor(time*30.0))-.5)*0.15*amount*gate;
+
+      vec2 ur=uv+vec2( shift,0.0);
+      vec2 ug=uv+vec2(-shift*.25,0.0);
+      vec2 ub=uv+vec2(-shift,0.0);
+
+      float r=texture2D(map,ur).r;
+      float g=texture2D(map,ug).g;
+      float b=texture2D(map,ub).b;
+      float a=texture2D(map,uv).a;
+
+      float scan=sin((uv.y*700.0)+(time*45.0))*.06*amount;
+      gl_FragColor=vec4(vec3(r,g,b)+scan,a*amount);
     }
+  `
+});
 
-    const track = internalVideo.srcObject.getVideoTracks()[0];
-    if (!track) return;
+/* Aspecto del PNG original: 1080x1350 aprox. */
+const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1.25), material);
+plane.position.z = 0.01;
+anchor.group.add(plane);
 
-    const showQuality = () => {
-      const s = track.getSettings?.() || {};
-      qualityBadge.textContent =
-        `Cámara real: ${s.width || "?"}×${s.height || "?"} @ ${Math.round(s.frameRate || 0)}fps`;
+let found=false;
+let glitching=false;
+let nextGlitch=0;
+let glitchStart=0;
+
+const WAIT=500;
+const GLITCH=1100;
+const GAP=700;
+
+anchor.onTargetFound = () => {
+  if(!found){
+    found=true;
+    nextGlitch=performance.now()+WAIT;
+  }
+};
+
+anchor.onTargetLost = () => {
+  found=false;
+  glitching=false;
+  uniforms.amount.value=0;
+};
+
+function updateGlitch(now){
+  if(!found) return;
+
+  if(!glitching && now>=nextGlitch){
+    glitching=true;
+    glitchStart=now;
+  }
+
+  if(glitching){
+    const p=(now-glitchStart)/GLITCH;
+    if(p>=1){
+      glitching=false;
+      uniforms.amount.value=0;
+      nextGlitch=now+GAP;
+    }else{
+      // ataque rápido + variación intensa
+      const envelope=Math.sin(Math.PI*Math.min(1,p*1.15));
+      uniforms.amount.value=Math.min(1,0.45+envelope*0.75);
+      uniforms.time.value=now/1000;
+    }
+  }
+}
+
+async function start(){
+  try{
+    /*
+      MindAR Three.js oficial. Antes de start() parcheamos getUserMedia
+      para que SU solicitud inicial nazca con constraints HD en Android.
+    */
+    const md=navigator.mediaDevices;
+    const original=md.getUserMedia.bind(md);
+
+    md.getUserMedia=async (constraints={})=>{
+      const c={...constraints};
+      const existing=(c.video && c.video!==true)?c.video:{};
+      c.video={
+        ...existing,
+        facingMode:{ideal:"environment"},
+        width:{ideal:1920,min:1280},
+        height:{ideal:1080,min:720},
+        frameRate:{ideal:30,max:30}
+      };
+      return original(c);
     };
 
-    showQuality();
-    setTimeout(showQuality, 500);
-    setTimeout(showQuality, 1500);
+    await mindarThree.start();
 
-  } catch (e) {
-    qualityBadge.textContent = "Cámara: error";
-    console.warn(e);
-  }
-}
+    // Restore API immediately after MindAR owns the stream.
+    md.getUserMedia=original;
 
-scene.addEventListener("renderstart", () => {
-  try {
-    if (scene.renderer) {
-      scene.renderer.setClearColor(0x000000, 0);
-      scene.renderer.setClearAlpha(0);
-    }
-    if (scene.object3D) scene.object3D.background = null;
-  } catch (_) {}
-});
+    const videos=[...container.querySelectorAll("video")];
+    const video=videos.find(v=>v.srcObject instanceof MediaStream) || videos[0];
 
-scene.addEventListener("arReady", () => {
-  setTimeout(improveCameraQuality, 250);
-});
-
-
-/* =========================================================
-   TEXTURA CANVAS -> THREE
-   ========================================================= */
-
-function initTexture() {
-  const mesh = plane.getObject3D("mesh");
-
-  if (!mesh) {
-    requestAnimationFrame(initTexture);
-    return;
-  }
-
-  texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.generateMipmaps = false;
-
-  mesh.material.map = texture;
-  mesh.material.transparent = true;
-  mesh.material.needsUpdate = true;
-}
-
-
-/* =========================================================
-   GLITCH FUERTE
-   ========================================================= */
-
-function renderGlitch(progress) {
-
-  // 0 -> 1 -> 0
-  const envelope = Math.sin(progress * Math.PI);
-
-  // se vuelve mucho más agresivo en el centro
-  const power = Math.pow(envelope, 0.55);
-
-  ctx.clearRect(0,0,TARGET_W,TARGET_H);
-
-  /*
-    Base ligeramente desplazada.
-    Así nunca parece una imagen simplemente estática.
-  */
-  const baseX = (Math.random() - .5) * 28 * power;
-  const baseY = (Math.random() - .5) * 16 * power;
-
-  ctx.drawImage(
-    image,
-    baseX,
-    baseY,
-    TARGET_W,
-    TARGET_H
-  );
-
-
-  /* -----------------------------
-     CORTES HORIZONTALES GRANDES
-     ----------------------------- */
-
-  const slices = Math.floor(8 + 42 * power);
-
-  for (let i=0; i<slices; i++) {
-
-    const y = Math.random() * TARGET_H;
-    const h = 4 + Math.random() * (25 + 100 * power);
-
-    const maxShift = 60 + 320 * power;
-    const shift = (Math.random() - .5) * maxShift;
-
-    ctx.drawImage(
-      image,
-      0, y,
-      TARGET_W, h,
-      shift, y,
-      TARGET_W, h
-    );
-  }
-
-
-  /* -----------------------------
-     BLOQUES DE DISTORSIÓN
-     ----------------------------- */
-
-  const blocks = Math.floor(3 + 16 * power);
-
-  for (let i=0; i<blocks; i++) {
-
-    const sx = Math.random() * TARGET_W;
-    const sy = Math.random() * TARGET_H;
-
-    const sw = 80 + Math.random() * 500;
-    const sh = 20 + Math.random() * 180;
-
-    const dx = sx + (Math.random() - .5) * 260 * power;
-    const dy = sy + (Math.random() - .5) * 80 * power;
-
-    ctx.drawImage(
-      image,
-      sx, sy, sw, sh,
-      dx, dy, sw, sh
-    );
-  }
-
-
-  /* -----------------------------
-     RGB SPLIT MÁS MARCADO
-     ----------------------------- */
-
-  if (power > .12) {
-
-    ctx.save();
-    ctx.globalCompositeOperation = "screen";
-
-    const rgbShift = 10 + 45 * power;
-
-    ctx.globalAlpha = .16 + .18 * power;
-    ctx.filter = "hue-rotate(155deg) saturate(2.8)";
-    ctx.drawImage(image, -rgbShift, 0, TARGET_W, TARGET_H);
-
-    ctx.globalAlpha = .13 + .16 * power;
-    ctx.filter = "hue-rotate(300deg) saturate(3)";
-    ctx.drawImage(image, rgbShift, 0, TARGET_W, TARGET_H);
-
-    ctx.restore();
-  }
-
-
-  /* -----------------------------
-     FLASH / RUIDO
-     ----------------------------- */
-
-  if (Math.random() < .38 * power) {
-    ctx.fillStyle = `rgba(255,255,255,${0.05 + 0.12*power})`;
-    ctx.fillRect(0,0,TARGET_W,TARGET_H);
-  }
-
-  const errorLines = Math.floor(2 + 18 * power);
-
-  for (let i=0; i<errorLines; i++) {
-    const y = Math.random() * TARGET_H;
-    const hh = 2 + Math.random() * 15;
-
-    ctx.fillStyle =
-      Math.random() > .5
-        ? `rgba(0,255,255,${.2 + .45*power})`
-        : `rgba(255,0,220,${.2 + .45*power})`;
-
-    ctx.fillRect(
-      Math.random() * TARGET_W * .15,
-      y,
-      TARGET_W * (.55 + Math.random()*.45),
-      hh
-    );
-  }
-
-
-  /* -----------------------------
-     SACUDIDA DEL PLANO ENTERO
-     ----------------------------- */
-
-  const shakeX = (Math.random() - .5) * .035 * power;
-  const shakeY = (Math.random() - .5) * .025 * power;
-
-  plane.setAttribute(
-    "position",
-    `${shakeX} ${shakeY} 0.03`
-  );
-
-  const sx = 1 + (Math.random()-.5) * .055 * power;
-  const sy = 1 + (Math.random()-.5) * .035 * power;
-
-  plane.setAttribute(
-    "scale",
-    `${sx} ${sy} 1`
-  );
-
-  texture.needsUpdate = true;
-}
-
-
-/* =========================================================
-   SECUENCIA
-   ========================================================= */
-
-function startGlitch() {
-
-  if (!visible) return;
-
-  plane.setAttribute("visible", true);
-
-  const start = performance.now();
-
-  function animate(now) {
-
-    if (!visible) {
-      stopGlitch();
-      return;
+    if(video && video.srcObject){
+      const track=video.srcObject.getVideoTracks()[0];
+      const s=track?.getSettings?.()||{};
+      status.textContent=`Cámara real: ${s.width||video.videoWidth||"?"}×${s.height||video.videoHeight||"?"} @ ${Math.round(s.frameRate||0)}fps`;
+    }else{
+      status.textContent="AR iniciado";
     }
 
-    const elapsed = now - start;
-    const progress = Math.min(elapsed / GLITCH_MS, 1);
+    renderer.setAnimationLoop(()=>{
+      updateGlitch(performance.now());
+      renderer.render(scene,camera);
+    });
 
-    renderGlitch(progress);
-
-    if (progress < 1) {
-      raf = requestAnimationFrame(animate);
-    } else {
-      stopGlitch();
-
-      clearTimeout(repeatTimer);
-      repeatTimer = setTimeout(() => {
-        if (visible) startGlitch();
-      }, REPEAT_MS);
-    }
+  }catch(e){
+    console.error(e);
+    status.textContent="Error: "+(e?.message||e);
   }
-
-  raf = requestAnimationFrame(animate);
 }
 
-
-function stopGlitch() {
-
-  if (raf) {
-    cancelAnimationFrame(raf);
-    raf = null;
-  }
-
-  plane.setAttribute("visible", false);
-  plane.setAttribute("position", "0 0 0.03");
-  plane.setAttribute("scale", "1 1 1");
-}
-
-
-/* =========================================================
-   TRACKING
-   ========================================================= */
-
-target.addEventListener("targetFound", () => {
-
-  if (visible) return;
-  visible = true;
-
-  clearTimeout(waitTimer);
-  clearTimeout(repeatTimer);
-  stopGlitch();
-
-  waitTimer = setTimeout(() => {
-    if (visible) startGlitch();
-  }, WAIT_MS);
-});
-
-
-target.addEventListener("targetLost", () => {
-
-  visible = false;
-
-  clearTimeout(waitTimer);
-  clearTimeout(repeatTimer);
-  stopGlitch();
-});
-
-
-/* =========================================================
-   INIT
-   ========================================================= */
-
-plane.addEventListener("loaded", () => {
-
-  if (image.complete) {
-    initTexture();
-  } else {
-    image.onload = initTexture;
-  }
-
-});
-
+start();
 </script>
 </body>
 </html>

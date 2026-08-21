@@ -49,12 +49,29 @@ canvas,.a-canvas{
   display:none!important;
   visibility:hidden!important;
 }
+
+#diag{
+  position:fixed;
+  z-index:99999;
+  left:10px;
+  bottom:10px;
+  max-width:calc(100vw - 20px);
+  padding:10px 12px;
+  border-radius:10px;
+  background:rgba(0,0,0,.72);
+  color:#7CFF7C;
+  font:12px/1.35 monospace;
+  white-space:pre-wrap;
+  pointer-events:none;
+  text-shadow:0 1px 2px #000;
+}
 </style>
 </head>
 
 <body>
 
 <video id="cameraFeed" autoplay playsinline muted></video>
+<div id="diag">Esperando cámara…</div>
 
 <a-scene
   id="scene"
@@ -109,6 +126,7 @@ const plane  = document.querySelector("#glitchPlane");
 const image  = document.querySelector("#targetImage");
 const scene  = document.querySelector("#scene");
 const cameraFeed = document.querySelector("#cameraFeed");
+const diag = document.querySelector("#diag");
 
 let visible = false;
 let waitTimer = null;
@@ -120,8 +138,6 @@ canvas.width  = TARGET_W;
 canvas.height = TARGET_H;
 
 const ctx = canvas.getContext("2d", {alpha:true});
-ctx.imageSmoothingEnabled = true;
-ctx.imageSmoothingQuality = "high";
 let texture = null;
 
 
@@ -135,11 +151,11 @@ async function improveCameraQuality() {
       .find(v => v !== cameraFeed && v.srcObject instanceof MediaStream);
 
     if (!internalVideo) {
+      diag.textContent = "Buscando stream interno de MindAR…";
       setTimeout(improveCameraQuality, 200);
       return;
     }
 
-    /* Usamos el MISMO stream de MindAR para no romper el tracking. */
     if (cameraFeed.srcObject !== internalVideo.srcObject) {
       cameraFeed.srcObject = internalVideo.srcObject;
       try { await cameraFeed.play(); } catch (_) {}
@@ -147,78 +163,71 @@ async function improveCameraQuality() {
 
     const stream = internalVideo.srcObject;
     const track = stream.getVideoTracks()[0];
-    if (!track) return;
+
+    if (!track) {
+      diag.textContent = "No encontré video track.";
+      return;
+    }
 
     const caps = track.getCapabilities ? track.getCapabilities() : {};
-    const current = track.getSettings ? track.getSettings() : {};
+    const before = track.getSettings ? track.getSettings() : {};
 
-    /*
-      Pedimos hasta 4K si Chrome/cámara lo ofrecen.
-      Son "ideal", no "exact", para que el navegador baje
-      automáticamente si el dispositivo no puede entregar tanto.
-    */
-    const maxW = caps.width?.max || 3840;
-    const maxH = caps.height?.max || 2160;
-
-    const constraints = {
-      width:  { ideal: Math.min(3840, maxW) },
-      height: { ideal: Math.min(2160, maxH) },
-      frameRate: { ideal: 30 }
+    const requested = {
+      width: 1920,
+      height: 1080,
+      frameRate: 30
     };
 
-    if (caps.aspectRatio) {
-      constraints.aspectRatio = { ideal: 16 / 9 };
-    }
+    const constraints = {
+      width: { ideal: requested.width },
+      height: { ideal: requested.height },
+      frameRate: { ideal: requested.frameRate, max: requested.frameRate }
+    };
 
     if (caps.focusMode?.includes("continuous")) {
       constraints.focusMode = "continuous";
     }
 
-    if (caps.resizeMode?.includes("none")) {
-      constraints.resizeMode = "none";
-    }
-
     try {
       await track.applyConstraints(constraints);
     } catch (e) {
-      console.warn("No se pudo aplicar perfil 4K/HD:", e);
+      console.warn("1080p constraints:", e);
     }
 
-    /*
-      Algunos Android negocian una resolución baja al comienzo
-      y permiten subirla unos instantes después. Reintentamos.
-    */
-    await new Promise(r => setTimeout(r, 700));
+    await new Promise(r => setTimeout(r, 500));
 
-    try {
-      await track.applyConstraints(constraints);
-    } catch (_) {}
+    const after = track.getSettings ? track.getSettings() : {};
 
-    const settings = track.getSettings ? track.getSettings() : {};
+    const lines = [
+      "=== CAMERA DEBUG ===",
+      `Solicitado: ${requested.width}x${requested.height} @ ${requested.frameRate}fps`,
+      `Track antes: ${before.width || "?"}x${before.height || "?"} @ ${before.frameRate || "?"}fps`,
+      `Track actual: ${after.width || "?"}x${after.height || "?"} @ ${after.frameRate || "?"}fps`,
+      `Video MindAR: ${internalVideo.videoWidth || "?"}x${internalVideo.videoHeight || "?"}`,
+      `Video visible: ${cameraFeed.videoWidth || "?"}x${cameraFeed.videoHeight || "?"}`,
+      `Facing: ${after.facingMode || "?"}`,
+      `Focus: ${after.focusMode || "?"}`,
+      `DevicePixelRatio: ${window.devicePixelRatio || "?"}`,
+      "",
+      "Capacidades:",
+      `width: ${caps.width ? `${caps.width.min}-${caps.width.max}` : "n/a"}`,
+      `height: ${caps.height ? `${caps.height.min}-${caps.height.max}` : "n/a"}`,
+      `fps: ${caps.frameRate ? `${caps.frameRate.min}-${caps.frameRate.max}` : "n/a"}`
+    ];
 
-    /*
-      El elemento visible toma las dimensiones nativas reales
-      del stream, evitando escalados internos innecesarios.
-    */
-    if (internalVideo.videoWidth && internalVideo.videoHeight) {
-      cameraFeed.width = internalVideo.videoWidth;
-      cameraFeed.height = internalVideo.videoHeight;
-    }
+    diag.textContent = lines.join("\n");
 
-    console.log(
-      "Camera quality:",
-      settings.width,
-      "x",
-      settings.height,
-      "@",
-      settings.frameRate,
-      "fps",
-      "focus:",
-      settings.focusMode || "n/a"
-    );
+    console.table({
+      requested,
+      before,
+      after,
+      mindarVideo: `${internalVideo.videoWidth}x${internalVideo.videoHeight}`,
+      visibleVideo: `${cameraFeed.videoWidth}x${cameraFeed.videoHeight}`
+    });
 
   } catch (e) {
-    console.warn("No pude optimizar la cámara:", e);
+    diag.textContent = "Error diagnóstico:\n" + (e?.message || e);
+    console.warn("Camera diagnostics error:", e);
   }
 }
 
@@ -227,33 +236,13 @@ scene.addEventListener("renderstart", () => {
     if (scene.renderer) {
       scene.renderer.setClearColor(0x000000, 0);
       scene.renderer.setClearAlpha(0);
-
-      /*
-        Sube la resolución física del canvas AR.
-        En pantallas de alta densidad evita que el glitch
-        se vea "lavado" o pixelado.
-      */
-      const dpr = Math.min(window.devicePixelRatio || 1, 3);
-      scene.renderer.setPixelRatio(dpr);
-      scene.renderer.setSize(window.innerWidth, window.innerHeight, false);
     }
-
     if (scene.object3D) scene.object3D.background = null;
   } catch (_) {}
 });
 
 scene.addEventListener("arReady", () => {
   setTimeout(improveCameraQuality, 250);
-});
-
-window.addEventListener("resize", () => {
-  try {
-    if (scene.renderer) {
-      const dpr = Math.min(window.devicePixelRatio || 1, 3);
-      scene.renderer.setPixelRatio(dpr);
-      scene.renderer.setSize(window.innerWidth, window.innerHeight, false);
-    }
-  } catch (_) {}
 });
 
 

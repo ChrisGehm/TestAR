@@ -1,173 +1,94 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <title>CyberFinance AR</title>
-
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-
-  <style>
-    html, body {
-      margin: 0 !important;
-      width: 100% !important;
-      height: 100% !important;
-      overflow: hidden !important;
-      background: transparent !important;
-    }
-
-    /* MindAR injects the camera video into the document */
-    video {
-      position: fixed !important;
-      inset: 0 !important;
-      width: 100vw !important;
-      height: 100vh !important;
-      max-width: none !important;
-      max-height: none !important;
-      object-fit: cover !important;
-      transform: none !important;
-    }
-
-    .a-canvas, canvas {
-      position: fixed !important;
-      inset: 0 !important;
-      width: 100vw !important;
-      height: 100vh !important;
-    }
-
-    .a-enter-vr, .a-enter-ar, .a-orientation-modal {
-      display: none !important;
-    }
-
-    #hud {
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      pointer-events: none;
-      color: white;
-      font-family: Arial, sans-serif;
-    }
-
-    #status {
-      position: absolute;
-      top: 4.5vh;
-      left: 0;
-      right: 0;
-      text-align: center;
-      font-size: 18px;
-      text-shadow: 0 2px 5px #000;
-    }
-
-    #hint {
-      position: absolute;
-      bottom: 5vh;
-      left: 8vw;
-      right: 8vw;
-      text-align: center;
-      font-size: 16px;
-      text-shadow: 0 2px 5px #000;
-    }
-
-    #frame {
-      position: absolute;
-      left: 10vw;
-      right: 10vw;
-      top: 22vh;
-      bottom: 22vh;
-      border: 0;
-    }
-
-    .corner {
-      position: absolute;
-      width: 34px;
-      height: 34px;
-      border-color: rgba(255,255,255,.85);
-      border-style: solid;
-    }
-    .tl { left:0; top:0; border-width:7px 0 0 7px; }
-    .tr { right:0; top:0; border-width:7px 7px 0 0; }
-    .bl { left:0; bottom:0; border-width:0 0 7px 7px; }
-    .br { right:0; bottom:0; border-width:0 7px 7px 0; }
-
-    .scanline {
-      position:absolute;
-      top:8px;
-      left:0;
-      right:0;
-      height:5px;
-      background:rgba(255,255,255,.8);
-      box-shadow:0 0 12px rgba(255,255,255,.5);
-      animation:scan 2.2s ease-in-out infinite alternate;
-    }
-    @keyframes scan {
-      from { transform:translateY(0); }
-      to { transform:translateY(calc(56vh - 20px)); }
-    }
-
-    body.found .scanline { display:none; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>CyberFinance AR V2</title>
+<script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+video,.a-canvas,canvas{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important}
+video{object-fit:cover!important}
+.a-enter-vr,.a-enter-ar,.a-orientation-modal,.a-enter-vr-button{display:none!important;visibility:hidden!important}
+#status{position:fixed;z-index:9999;top:3vh;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:24px;background:#0009;color:#fff;font:16px Arial;white-space:nowrap;pointer-events:none}
+</style>
 </head>
-
 <body>
-  <div id="hud">
-    <div id="status">Iniciando cámara…</div>
-    <div id="frame">
-      <i class="corner tl"></i><i class="corner tr"></i>
-      <i class="corner bl"></i><i class="corner br"></i>
-      <div class="scanline"></div>
-    </div>
-    <div id="hint">Buscá que el toro ocupe buena parte de la pantalla.</div>
-  </div>
+<div id="status">Iniciando cámara…</div>
 
-  <a-scene
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: yes;"
-    embedded
-    vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: false"
-    renderer="alpha: true; colorManagement: true; physicallyCorrectLights: true"
-  >
-    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+<a-scene
+ mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiScanning: no; uiError: yes;"
+ embedded
+ vr-mode-ui="enabled: false"
+ device-orientation-permission-ui="enabled: false"
+ renderer="alpha:true; antialias:true; colorManagement:true">
+ <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
-    <a-entity id="bullTarget" mindar-image-target="targetIndex: 0">
-      <!-- Neon eye overlays; coordinates can be fine-tuned after the first tracking test. -->
-      <a-circle position="-0.175 0.105 0.01" radius="0.055"
-        material="color: #ffffff; emissive: #ff00ff; emissiveIntensity: 3; transparent: true; opacity: .72"
-        animation="property: scale; from: 0.75 0.75 0.75; to: 1.25 1.25 1.25; dir: alternate; dur: 450; loop: true">
-      </a-circle>
-      <a-circle position="0.175 0.105 0.01" radius="0.055"
-        material="color: #ffffff; emissive: #ff00ff; emissiveIntensity: 3; transparent: true; opacity: .72"
-        animation="property: scale; from: 0.75 0.75 0.75; to: 1.25 1.25 1.25; dir: alternate; dur: 450; loop: true">
-      </a-circle>
-    </a-entity>
-  </a-scene>
+ <a-entity id="bull" mindar-image-target="targetIndex:0">
 
-  <script>
-    const scene = document.querySelector('a-scene');
-    const target = document.querySelector('#bullTarget');
-    const status = document.querySelector('#status');
-    const hint = document.querySelector('#hint');
+   <!-- halos colocados sobre los ojos reales -->
+   <a-ring id="eyeL" position="-0.174 -0.035 0.012" radius-inner="0.026" radius-outer="0.052"
+     material="shader:flat;color:#ff19f7;transparent:true;opacity:.9"
+     animation__pulse="property:scale;from:.72 .72 .72;to:1.35 1.35 1.35;dir:alternate;dur:320;loop:true;easing:easeInOutSine">
+   </a-ring>
+   <a-circle position="-0.174 -0.035 0.011" radius="0.025"
+     material="shader:flat;color:#fff;transparent:true;opacity:.68"
+     animation="property:material.opacity;from:.25;to:.9;dir:alternate;dur:220;loop:true"></a-circle>
 
-    scene.addEventListener('arReady', () => {
-      status.textContent = 'Buscando el toro…';
-    });
+   <a-ring id="eyeR" position="0.174 -0.035 0.012" radius-inner="0.026" radius-outer="0.052"
+     material="shader:flat;color:#ff19f7;transparent:true;opacity:.9"
+     animation__pulse="property:scale;from:.72 .72 .72;to:1.35 1.35 1.35;dir:alternate;dur:320;loop:true;easing:easeInOutSine">
+   </a-ring>
+   <a-circle position="0.174 -0.035 0.011" radius="0.025"
+     material="shader:flat;color:#fff;transparent:true;opacity:.68"
+     animation="property:material.opacity;from:.25;to:.9;dir:alternate;dur:220;loop:true"></a-circle>
 
-    scene.addEventListener('arError', () => {
-      status.textContent = 'No pude iniciar la cámara';
-      hint.textContent = 'Revisá el permiso de cámara de Chrome y recargá.';
-    });
+   <!-- barras glitch -->
+   <a-plane position="-0.31 0.22 0.018" width=".27" height=".012"
+     material="shader:flat;color:#00ffff;transparent:true;opacity:.85"
+     animation="property:position;from:-.36 .22 .018;to:-.18 .22 .018;dir:alternate;dur:120;loop:true"></a-plane>
+   <a-plane position=".29 .13 .019" width=".31" height=".010"
+     material="shader:flat;color:#ff00dd;transparent:true;opacity:.8"
+     animation="property:position;from:.17 .13 .019;to:.37 .13 .019;dir:alternate;dur:155;loop:true"></a-plane>
+   <a-plane position="-.25 -.23 .019" width=".22" height=".009"
+     material="shader:flat;color:#2146ff;transparent:true;opacity:.85"
+     animation="property:scale;from:.35 1 1;to:1.15 1 1;dir:alternate;dur:190;loop:true"></a-plane>
 
-    target.addEventListener('targetFound', () => {
-      document.body.classList.add('found');
-      status.textContent = '✓ Toro detectado';
-      hint.textContent = 'Mové el teléfono: el efecto debería quedar pegado a la imagen.';
-    });
+   <!-- energía/humo digital desde la nariz -->
+   <a-circle position="-.065 -.245 .025" radius=".018"
+     material="shader:flat;color:#00ffff;transparent:true;opacity:.65"
+     animation__move="property:position;from:-.065 -.245 .025;to:-.12 -.39 .05;dur:900;loop:true"
+     animation__fade="property:material.opacity;from:.7;to:0;dur:900;loop:true"
+     animation__grow="property:scale;from:.4 .4 .4;to:2.4 2.4 2.4;dur:900;loop:true"></a-circle>
+   <a-circle position=".065 -.245 .025" radius=".018"
+     material="shader:flat;color:#ff00dd;transparent:true;opacity:.65"
+     animation__move="property:position;from:.065 -.245 .025;to:.12 -.39 .05;dur:1050;loop:true"
+     animation__fade="property:material.opacity;from:.7;to:0;dur:1050;loop:true"
+     animation__grow="property:scale;from:.4 .4 .4;to:2.5 2.5 2.5;dur:1050;loop:true"></a-circle>
 
-    target.addEventListener('targetLost', () => {
-      document.body.classList.remove('found');
-      status.textContent = 'Buscando el toro…';
-      hint.textContent = 'Volvé a encuadrar la imagen completa.';
-    });
-  </script>
+   <!-- elemento que sobresale del plano -->
+   <a-ring position="0 -.06 .035" radius-inner=".40" radius-outer=".405"
+     material="shader:flat;color:#00ffff;transparent:true;opacity:.45"
+     animation="property:rotation;to:0 0 360;dur:4000;loop:true;easing:linear"
+     animation__pulse="property:scale;from:.9 .9 .9;to:1.08 1.08 1.08;dir:alternate;dur:650;loop:true"></a-ring>
+ </a-entity>
+</a-scene>
+
+<script>
+const status=document.querySelector('#status');
+const scene=document.querySelector('a-scene');
+const bull=document.querySelector('#bull');
+scene.addEventListener('arReady',()=>status.textContent='Buscando el toro…');
+scene.addEventListener('arError',()=>status.textContent='Error de cámara');
+bull.addEventListener('targetFound',()=>{
+  status.textContent='✓ Toro detectado';
+  setTimeout(()=>status.style.opacity='0',1200);
+});
+bull.addEventListener('targetLost',()=>{
+  status.style.opacity='1';
+  status.textContent='Buscando el toro…';
+});
+</script>
 </body>
 </html>
